@@ -10,11 +10,12 @@
   <title>Balls to the Wall</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overscroll-behavior: none; }
-    input { font-size: 16px !important; }
+    input, select { font-size: 16px !important; }
     .bar-container { display: flex; align-items: center; margin-bottom: 8px; }
     .bar-label { width: 80px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bar-group { flex: 1; display: flex; flex-direction: column; gap: 2px; }
@@ -22,24 +23,56 @@
     .bar-winners { background-color: #22c55e; }
     .bar-forced { background-color: #eab308; }
     .bar-unforced { background-color: #ef4444; }
+    .btn-3d { background: linear-gradient(to bottom, #22c55e 0%, #16a34a 100%); border: none; border-radius: 12px; box-shadow: 0 6px 0 #15803d, 0 8px 10px rgba(0,0,0,0.3); transition: all 0.1s; }
+    .btn-3d:active { box-shadow: 0 2px 0 #15803d, 0 4px 6px rgba(0,0,0,0.3); transform: translateY(4px); }
+    .btn-3d-sm { background: linear-gradient(to bottom, #22c55e 0%, #16a34a 100%); border: none; border-radius: 8px; box-shadow: 0 4px 0 #15803d, 0 5px 8px rgba(0,0,0,0.2); transition: all 0.1s; }
+    .btn-3d-sm:active { box-shadow: 0 1px 0 #15803d, 0 2px 4px rgba(0,0,0,0.2); transform: translateY(3px); }
+    .btn-3d-yellow { background: linear-gradient(to bottom, #eab308 0%, #ca8a04 100%); border: none; border-radius: 8px; box-shadow: 0 4px 0 #a16207, 0 5px 8px rgba(0,0,0,0.2); transition: all 0.1s; }
+    .btn-3d-yellow:active { box-shadow: 0 1px 0 #a16207, 0 2px 4px rgba(0,0,0,0.2); transform: translateY(3px); }
+    .btn-3d-red { background: linear-gradient(to bottom, #ef4444 0%, #dc2626 100%); border: none; border-radius: 8px; box-shadow: 0 4px 0 #b91c1c, 0 5px 8px rgba(0,0,0,0.2); transition: all 0.1s; }
+    .btn-3d-red:active { box-shadow: 0 1px 0 #b91c1c, 0 2px 4px rgba(0,0,0,0.2); transform: translateY(3px); }
+    .btn-3d-red-lg { background: linear-gradient(to bottom, #ef4444 0%, #dc2626 100%); border: none; border-radius: 12px; box-shadow: 0 6px 0 #b91c1c, 0 8px 10px rgba(0,0,0,0.3); transition: all 0.1s; }
+    .btn-3d-red-lg:active { box-shadow: 0 2px 0 #b91c1c, 0 4px 6px rgba(0,0,0,0.3); transform: translateY(4px); }
+    .toggle-switch { position: relative; width: 50px; height: 26px; background: #ccc; border-radius: 13px; cursor: pointer; transition: background 0.3s; }
+    .toggle-switch.active { background: #22c55e; }
+    .toggle-switch::after { content: ''; position: absolute; width: 22px; height: 22px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.3s; }
+    .toggle-switch.active::after { transform: translateX(24px); }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script>
-    const { useState, useCallback } = React;
+    const { useState, useCallback, useRef } = React;
     const e = React.createElement;
 
     const SHOT_GROUPS = [
-      { label: 'Overheads', shots: ['Bandeja', 'Víbora', 'Smash', 'Par 3', 'Par 4', 'Rulo'] },
+      { label: 'Overheads', shots: ['Bandeja', 'Víbora', 'Smash', 'Por Tres', 'Por Cuatro', 'Rulo'] },
       { label: 'Net', shots: ['FH Volley', 'BH Volley', 'Drop Shot'] },
-      { label: 'Other', shots: ['FH Groundstroke', 'BH Groundstroke', 'Lob', 'Chiquita', 'Bajada', 'Contrapared', 'Other'] }
+      { label: 'Other', shots: ['FH Groundstroke', 'BH Groundstroke', 'Lob', 'Chiquita', 'Bajada', 'Contrapared', 'Side Glass', 'Fake Smash'] }
     ];
+
+    const OVERHEAD_SHOTS = ['Bandeja', 'Víbora', 'Smash', 'Por Tres', 'Por Cuatro', 'Rulo', 'Bajada'];
+    const VOLLEY_SHOTS = ['FH Volley', 'BH Volley'];
+
+    const clickSound = () => {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 600;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.1);
+      } catch (err) {}
+    };
 
     const initialMatchState = () => ({
       sets: [{ teamA: 0, teamB: 0 }], currentSet: 0, games: { teamA: 0, teamB: 0 }, points: { teamA: 0, teamB: 0 },
       deuceCount: 0, isTiebreak: false, isSuperTiebreak: false, tiebreakPoints: { teamA: 0, teamB: 0 },
-      serverIndex: 0, tiebreakServerIndex: 0, tiebreakPointCount: 0, isComplete: false, winner: null
+      serverIndex: 0, tiebreakServerIndex: 0, tiebreakPointCount: 0, isComplete: false, winner: null, isDraw: false
     });
 
     const serverOrder = [
@@ -50,7 +83,7 @@
     function PadelTracker() {
       const [screen, setScreen] = useState('setup');
       const [matchFormat, setMatchFormat] = useState('bestOf3');
-      const [scoringType, setScoringType] = useState('silver');
+      const [scoringType, setScoringType] = useState('golden2');
       const [gamesPerSet, setGamesPerSet] = useState(6);
       const [tiebreakRule, setTiebreakRule] = useState('standard');
       const [players, setPlayers] = useState({ teamA: { right: '', left: '' }, teamB: { right: '', left: '' } });
@@ -59,6 +92,12 @@
       const [pointLog, setPointLog] = useState([]);
       const [pendingPoint, setPendingPoint] = useState(null);
       const [manualServerSelect, setManualServerSelect] = useState(false);
+      const [showEditModal, setShowEditModal] = useState(false);
+      const [trackShotTypes, setTrackShotTypes] = useState(true);
+      const [editPlayers, setEditPlayers] = useState({ teamA: { right: '', left: '' }, teamB: { right: '', left: '' } });
+      const [editGames, setEditGames] = useState({ teamA: 0, teamB: 0 });
+      const [editPoints, setEditPoints] = useState({ teamA: '0', teamB: '0' });
+      const statsRef = useRef(null);
 
       const getCurrentServer = () => serverOrder[match.isTiebreak || match.isSuperTiebreak ? match.tiebreakServerIndex : match.serverIndex];
       const getPlayerName = (team, side) => players[team][side] || `${team === 'teamA' ? 'A' : 'B'}-${side}`;
@@ -68,14 +107,62 @@
         setPlayers(prev => ({ ...prev, [team]: { ...prev[team], [side]: value } }));
       }, []);
 
+      const openEditModal = () => {
+        setEditPlayers(JSON.parse(JSON.stringify(players)));
+        setEditGames({ ...match.games });
+        const ptsA = match.points.teamA, ptsB = match.points.teamB;
+        let ptA = '0', ptB = '0';
+        if (ptsA === 0) ptA = '0'; else if (ptsA === 1) ptA = '15'; else if (ptsA === 2) ptA = '30'; else if (ptsA === 3) ptA = '40'; else if (ptsA === 4) ptA = 'AD';
+        if (ptsB === 0) ptB = '0'; else if (ptsB === 1) ptB = '15'; else if (ptsB === 2) ptB = '30'; else if (ptsB === 3) ptB = '40'; else if (ptsB === 4) ptB = 'AD';
+        if (ptsA === 3 && ptsB === 3 && scoringType === 'golden1') { ptA = 'GP'; ptB = 'GP'; }
+        if (ptsA === 3 && ptsB === 3 && scoringType === 'golden2' && match.deuceCount >= 1) { ptA = 'GP'; ptB = 'GP'; }
+        setEditPoints({ teamA: ptA, teamB: ptB });
+        setShowEditModal(true);
+      };
+
+      const saveEditModal = () => {
+        setPlayers(editPlayers);
+        let ptsA = 0, ptsB = 0;
+        if (editPoints.teamA === '0') ptsA = 0; else if (editPoints.teamA === '15') ptsA = 1; else if (editPoints.teamA === '30') ptsA = 2; else if (editPoints.teamA === '40') ptsA = 3; else if (editPoints.teamA === 'AD') ptsA = 4; else if (editPoints.teamA === 'GP') ptsA = 3;
+        if (editPoints.teamB === '0') ptsB = 0; else if (editPoints.teamB === '15') ptsB = 1; else if (editPoints.teamB === '30') ptsB = 2; else if (editPoints.teamB === '40') ptsB = 3; else if (editPoints.teamB === 'AD') ptsB = 4; else if (editPoints.teamB === 'GP') ptsB = 3;
+        let dc = match.deuceCount;
+        if (editPoints.teamA === 'GP' || editPoints.teamB === 'GP') dc = scoringType === 'golden2' ? 1 : 0;
+        setMatch(m => ({ ...m, games: editGames, points: { teamA: ptsA, teamB: ptsB }, deuceCount: dc }));
+        setShowEditModal(false);
+      };
+
+      const handlePointsChange = (team, val) => {
+        if (val === 'AD') {
+          setEditPoints({ teamA: team === 'teamA' ? 'AD' : '40', teamB: team === 'teamB' ? 'AD' : '40' });
+        } else if (val === 'GP') {
+          setEditPoints({ teamA: 'GP', teamB: 'GP' });
+        } else {
+          setEditPoints(prev => ({ ...prev, [team]: val }));
+        }
+      };
+
+      const handleEditPlayerChange = (team, side, value) => {
+        setEditPlayers(prev => {
+          const newState = { ...prev };
+          newState[team] = { ...prev[team], [side]: value };
+          return newState;
+        });
+      };
+
+      const getGamesOptions = () => {
+        if (gamesPerSet === 6) return [0,1,2,3,4,5,6,7];
+        if (tiebreakRule === 'early') return [0,1,2,3,4];
+        return [0,1,2,3,4,5];
+      };
+
       const formatPoints = (teamA, teamB, deuceCount) => {
         const labels = ['0', '15', '30', '40'];
         if (teamA < 3 && teamB < 3) return { a: labels[teamA], b: labels[teamB] };
         if (teamA < 3) return { a: labels[teamA], b: '40' };
         if (teamB < 3) return { a: '40', b: labels[teamB] };
         if (teamA === teamB) {
-          if (scoringType === 'golden') return { a: 'GP', b: 'GP' };
-          if (scoringType === 'silver' && deuceCount >= 2) return { a: 'SP', b: 'SP' };
+          if (scoringType === 'golden1') return { a: 'GP', b: 'GP' };
+          if (scoringType === 'golden2' && deuceCount >= 1) return { a: 'GP', b: 'GP' };
           return { a: '40', b: '40' };
         }
         return teamA > teamB ? { a: 'AD', b: '' } : { a: '', b: 'AD' };
@@ -86,14 +173,14 @@
         const serverPoints = points[servingTeam], receiverPoints = points[receivingTeam];
         if (receiverPoints >= 3 && receiverPoints > serverPoints) return true;
         if (receiverPoints === 3 && serverPoints < 3) return true;
-        if (scoringType === 'golden' && receiverPoints === 3 && serverPoints === 3) return true;
-        if (scoringType === 'silver' && deuceCount >= 2 && receiverPoints === 3 && serverPoints === 3) return true;
+        if (scoringType === 'golden1' && receiverPoints === 3 && serverPoints === 3) return true;
+        if (scoringType === 'golden2' && deuceCount >= 1 && receiverPoints === 3 && serverPoints === 3) return true;
         return false;
       };
 
       const handlePointScored = (team, playerSide, outcome) => {
         const server = getCurrentServer();
-        setPendingPoint({
+        const point = {
           team, playerSide, outcome,
           isServerPoint: server.team === team && server.side === playerSide,
           servingTeam: server.team,
@@ -101,19 +188,28 @@
           server: { ...server, name: getPlayerName(server.team, server.side) },
           playerName: getPlayerName(team, playerSide),
           selectedShot: null
-        });
+        };
+        if (trackShotTypes) {
+          setPendingPoint(point);
+        } else {
+          confirmPointDirect(point, null);
+        }
+      };
+
+      const confirmPointDirect = (point, shotType) => {
+        setHistory(h => [...h, { match: JSON.parse(JSON.stringify(match)), pointLog: [...pointLog] }]);
+        const isAce = shotType === 'Ace', isDoubleFault = shotType === 'Double Fault';
+        let winningTeam;
+        if (isDoubleFault) winningTeam = point.team === 'teamA' ? 'teamB' : 'teamA';
+        else if (point.outcome === 'error' || point.outcome === 'forced') winningTeam = point.team === 'teamA' ? 'teamB' : 'teamA';
+        else winningTeam = point.team;
+        setPointLog(p => [...p, { ...point, shotType: shotType || 'Unspecified', isAce, isDoubleFault, winningTeam, isServicePoint: point.servingTeam === winningTeam, breakPointConverted: point.isBreakPoint && winningTeam !== point.servingTeam, timestamp: Date.now() }]);
+        updateScore(winningTeam);
       };
 
       const confirmPoint = (shotType) => {
         if (!pendingPoint) return;
-        setHistory(h => [...h, { match: JSON.parse(JSON.stringify(match)), pointLog: [...pointLog] }]);
-        const isAce = shotType === 'Ace', isDoubleFault = shotType === 'Double Fault';
-        let winningTeam;
-        if (isDoubleFault) winningTeam = pendingPoint.team === 'teamA' ? 'teamB' : 'teamA';
-        else if (pendingPoint.outcome === 'error' || pendingPoint.outcome === 'forced') winningTeam = pendingPoint.team === 'teamA' ? 'teamB' : 'teamA';
-        else winningTeam = pendingPoint.team;
-        setPointLog(p => [...p, { ...pendingPoint, shotType: shotType || 'Unspecified', isAce, isDoubleFault, winningTeam, isServicePoint: pendingPoint.servingTeam === winningTeam, breakPointConverted: pendingPoint.isBreakPoint && winningTeam !== pendingPoint.servingTeam, timestamp: Date.now() }]);
-        updateScore(winningTeam);
+        confirmPointDirect(pendingPoint, shotType);
         setPendingPoint(null);
       };
 
@@ -132,8 +228,8 @@
           if (teamA >= 4 || teamB >= 4) {
             if (teamA === teamB) { m.deuceCount++; m.points = { teamA: 3, teamB: 3 }; }
             else if (Math.abs(teamA - teamB) >= 2) return handleGameWon(m, teamA > teamB ? 'teamA' : 'teamB');
-            else if (scoringType === 'golden' && teamA !== teamB) return handleGameWon(m, teamA > teamB ? 'teamA' : 'teamB');
-            else if (scoringType === 'silver' && m.deuceCount >= 2 && teamA !== teamB) return handleGameWon(m, teamA > teamB ? 'teamA' : 'teamB');
+            else if (scoringType === 'golden1' && teamA !== teamB) return handleGameWon(m, teamA > teamB ? 'teamA' : 'teamB');
+            else if (scoringType === 'golden2' && m.deuceCount >= 1 && teamA !== teamB) return handleGameWon(m, teamA > teamB ? 'teamA' : 'teamB');
           }
           return m;
         });
@@ -170,31 +266,53 @@
         return m;
       };
 
+      const endMatchAsDraw = () => {
+        setHistory(h => [...h, { match: JSON.parse(JSON.stringify(match)), pointLog: [...pointLog] }]);
+        setMatch(m => ({ ...m, isComplete: true, winner: null, isDraw: true }));
+      };
+
       const undo = () => { if (history.length === 0) return; const last = history[history.length - 1]; setMatch(last.match); setPointLog(last.pointLog); setHistory(h => h.slice(0, -1)); };
 
       const getStats = () => {
         const stats = {};
-        ['teamA', 'teamB'].forEach(team => ['right', 'left'].forEach(side => { stats[`${team}-${side}`] = { name: getPlayerName(team, side), team, winners: 0, forcedErrors: 0, errors: 0, aces: 0, doubleFaults: 0, winnerShots: {} }; }));
-        const teamStats = { teamA: { servicePointsWon: 0, servicePointsPlayed: 0, breakPointsWon: 0, breakPointsPlayed: 0 }, teamB: { servicePointsWon: 0, servicePointsPlayed: 0, breakPointsWon: 0, breakPointsPlayed: 0 } };
+        ['teamA', 'teamB'].forEach(team => ['right', 'left'].forEach(side => { stats[`${team}-${side}`] = { name: getPlayerName(team, side), team, winners: 0, forcedErrors: 0, errors: 0, aces: 0, doubleFaults: 0, winnerShots: {}, errorShots: {}, pointsWon: 0 }; }));
+        const teamStats = { teamA: { servicePointsWon: 0, servicePointsPlayed: 0, breakPointsWon: 0, breakPointsPlayed: 0, totalPointsWon: 0, overheadWinners: 0, volleyWinners: 0 }, teamB: { servicePointsWon: 0, servicePointsPlayed: 0, breakPointsWon: 0, breakPointsPlayed: 0, totalPointsWon: 0, overheadWinners: 0, volleyWinners: 0 } };
         pointLog.forEach(p => {
           const key = `${p.team}-${p.playerSide}`;
           if (p.servingTeam) { teamStats[p.servingTeam].servicePointsPlayed++; if (p.isServicePoint) teamStats[p.servingTeam].servicePointsWon++; }
           if (p.isBreakPoint) { const rt = p.servingTeam === 'teamA' ? 'teamB' : 'teamA'; teamStats[rt].breakPointsPlayed++; if (p.breakPointConverted) teamStats[rt].breakPointsWon++; }
-          if (p.isAce) { stats[key].aces++; stats[key].winners++; stats[key].winnerShots['Ace'] = (stats[key].winnerShots['Ace'] || 0) + 1; }
-          else if (p.isDoubleFault) { stats[key].doubleFaults++; stats[key].errors++; }
-          else if (p.outcome === 'winner') { stats[key].winners++; if (p.shotType && p.shotType !== 'Unspecified') stats[key].winnerShots[p.shotType] = (stats[key].winnerShots[p.shotType] || 0) + 1; }
+          if (p.winningTeam) { teamStats[p.winningTeam].totalPointsWon++; }
+          if (p.isAce) { stats[key].aces++; stats[key].winners++; stats[key].pointsWon++; stats[key].winnerShots['Ace'] = (stats[key].winnerShots['Ace'] || 0) + 1; }
+          else if (p.isDoubleFault) { stats[key].doubleFaults++; stats[key].errors++; stats[key].errorShots['Double Fault'] = (stats[key].errorShots['Double Fault'] || 0) + 1; }
+          else if (p.outcome === 'winner') { 
+            stats[key].winners++; stats[key].pointsWon++;
+            if (p.shotType && p.shotType !== 'Unspecified') {
+              stats[key].winnerShots[p.shotType] = (stats[key].winnerShots[p.shotType] || 0) + 1;
+              if (OVERHEAD_SHOTS.includes(p.shotType)) teamStats[p.team].overheadWinners++;
+              if (VOLLEY_SHOTS.includes(p.shotType)) teamStats[p.team].volleyWinners++;
+            }
+          }
           else if (p.outcome === 'forced') stats[key].forcedErrors++;
-          else stats[key].errors++;
+          else { stats[key].errors++; if (p.shotType && p.shotType !== 'Unspecified') stats[key].errorShots[p.shotType] = (stats[key].errorShots[p.shotType] || 0) + 1; }
         });
         return { playerStats: stats, teamStats };
       };
 
-      const exportStats = () => {
-        const { playerStats } = getStats();
-        let text = `PADEL MATCH STATS\n${'='.repeat(40)}\n\n${getTeamName('teamA')} vs ${getTeamName('teamB')}\n\n`;
-        text += match.sets.map((s, i) => `Set ${i + 1}: ${s.teamA}-${s.teamB}`).join('\n') + `\n${match.isComplete ? `Winner: Team ${match.winner === 'teamA' ? 'A' : 'B'}` : 'In Progress'}\n\n`;
-        Object.values(playerStats).forEach(p => { text += `${p.name}\n${'-'.repeat(20)}\nWinners: ${p.winners} | Forced Errors: ${p.forcedErrors} | Unforced Errors: ${p.errors}\nAces: ${p.aces} | Double Faults: ${p.doubleFaults}\n\n`; });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = `padel-match-${new Date().toISOString().split('T')[0]}.txt`; a.click();
+      const shareStats = async () => {
+        if (!statsRef.current) return;
+        try {
+          const canvas = await html2canvas(statsRef.current, { backgroundColor: '#f9fafb', scale: 2 });
+          canvas.toBlob(async (blob) => {
+            if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], 'stats.png', { type: 'image/png' })] })) {
+              await navigator.share({ files: [new File([blob], 'padel-stats.png', { type: 'image/png' })], title: 'Padel Match Stats' });
+            } else {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = `padel-stats-${new Date().toISOString().split('T')[0]}.png`;
+              a.click();
+            }
+          }, 'image/png');
+        } catch (err) { console.error('Share failed:', err); }
       };
 
       const getTiebreakOptions = () => gamesPerSet === 4 ? [{ value: 'early', label: 'TB at 3-3' }, { value: 'standard', label: 'TB at 4-4' }, { value: 'noTiebreak', label: 'No Tiebreak' }] : [{ value: 'standard', label: 'TB at 6-6' }];
@@ -212,9 +330,9 @@
             e('div', { className: 'mb-4' }, 
               e('label', { className: 'block text-sm font-medium mb-2' }, 'Deuce Scoring'),
               e('div', { className: 'flex gap-2' }, 
-                [{ value: 'advantage', label: 'Advantage' }, { value: 'golden', label: 'Golden Point' }, { value: 'silver', label: 'Silver Point' }].map(opt => 
-                  e('button', { key: opt.value, onClick: () => setScoringType(opt.value), className: `flex-1 py-2 rounded text-sm ${scoringType === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, opt.label))),
-              e('p', { className: 'text-xs text-gray-500 mt-1' }, scoringType === 'advantage' ? 'Standard: must win by 2 points after deuce' : scoringType === 'golden' ? 'Single deciding point at deuce' : 'Deciding point after 2 deuces')),
+                [{ value: 'advantage', label: 'Advantage' }, { value: 'golden1', label: 'Golden Point (1 deuce)' }, { value: 'golden2', label: 'Golden Point (2 deuces)' }].map(opt => 
+                  e('button', { key: opt.value, onClick: () => setScoringType(opt.value), className: `flex-1 py-2 rounded text-xs ${scoringType === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, opt.label))),
+              e('p', { className: 'text-xs text-gray-500 mt-1' }, scoringType === 'advantage' ? 'Standard: must win by 2 points after deuce' : scoringType === 'golden1' ? 'Deciding point at first deuce' : 'One advantage, then deciding point')),
             e('div', { className: 'mb-4' }, 
               e('label', { className: 'block text-sm font-medium mb-2' }, 'Games per Set'),
               e('div', { className: 'flex gap-2' }, 
@@ -233,12 +351,13 @@
               e('div', { className: 'grid grid-cols-2 gap-2' },
                 e('input', { placeholder: 'Left side player', value: players.teamB.left, onChange: ev => updatePlayer('teamB', 'left', ev.target.value), className: 'p-2 border rounded' }),
                 e('input', { placeholder: 'Right side player', value: players.teamB.right, onChange: ev => updatePlayer('teamB', 'right', ev.target.value), className: 'p-2 border rounded' }))),
-            e('button', { onClick: () => setScreen('match'), className: 'w-full py-4 bg-green-600 text-white rounded-lg font-semibold text-lg' }, 'Start Match')));
+            e('button', { onClick: () => { clickSound(); setScreen('match'); }, className: 'btn-3d w-full py-5 text-white font-bold text-xl rounded-xl' }, 'Start Match')));
       }
 
       // Match Screen
       if (screen === 'match') {
         const server = getCurrentServer();
+        const servingTeam = server.team;
         const pointsDisplay = (match.isTiebreak || match.isSuperTiebreak) ? { a: match.tiebreakPoints.teamA.toString(), b: match.tiebreakPoints.teamB.toString() } : formatPoints(match.points.teamA, match.points.teamB, match.deuceCount);
         const showSetColumns = matchFormat !== '1set';
         
@@ -246,22 +365,25 @@
           const isServer = server.team === team && server.side === side;
           const isPartner = server.team === team && server.side !== side;
           const bgColor = team === 'teamA' ? 'bg-blue-100 border-blue-400' : 'bg-red-100 border-red-400';
+          const playerName = getPlayerName(team, side);
+          const displayName = isServer ? playerName.toUpperCase() : playerName;
           return e('div', { key: `${team}-${side}`, className: `${bgColor} border-2 rounded-lg p-2` },
             e('div', { className: `flex items-center justify-between ${isPartner ? 'mb-2 h-8' : 'mb-2'}` },
-              e('span', { className: 'font-semibold text-sm truncate flex-1' }, getPlayerName(team, side)),
+              e('span', { className: `font-semibold text-sm truncate flex-1 ${isServer ? 'font-bold' : ''}` }, displayName),
               isServer && e('span', { className: 'text-lg ml-1' }, '🎾')),
             e('div', { className: 'flex gap-1 h-24' },
-              e('button', { onClick: () => handlePointScored(team, side, 'winner'), className: 'flex-1 text-white text-sm rounded-lg font-semibold bg-green-500 active:bg-green-700 flex items-center justify-center' }, 'Winner'),
-              e('div', { className: 'flex flex-col gap-1 w-1/2' },
-                e('button', { onClick: () => handlePointScored(team, side, 'forced'), className: 'flex-1 text-white text-xs rounded-lg font-semibold bg-yellow-500 active:bg-yellow-700 flex items-center justify-center px-1' }, 'Forced'),
-                e('button', { onClick: () => handlePointScored(team, side, 'error'), className: 'flex-1 text-white text-xs rounded-lg font-semibold bg-red-500 active:bg-red-700 flex items-center justify-center px-1' }, 'Unforced'))));
+              e('button', { onClick: () => handlePointScored(team, side, 'winner'), className: 'btn-3d-sm flex-1 text-white text-sm rounded-lg font-semibold flex items-center justify-center' }, 'Winner'),
+              e('div', { className: 'flex flex-col gap-2 w-1/2' },
+                e('button', { onClick: () => handlePointScored(team, side, 'forced'), className: 'btn-3d-yellow flex-1 text-white text-xs rounded-lg font-semibold flex items-center justify-center px-1' }, 'Forced'),
+                e('button', { onClick: () => handlePointScored(team, side, 'error'), className: 'btn-3d-red flex-1 text-white text-xs rounded-lg font-semibold flex items-center justify-center px-1' }, 'Unforced'))));
         };
 
         return e('div', { className: 'min-h-screen bg-gray-50' },
           e('div', { className: 'p-2' },
             e('div', { className: 'flex justify-between items-center mb-2' },
               e('button', { onClick: undo, disabled: history.length === 0, className: 'px-3 py-2 bg-gray-300 rounded-lg disabled:opacity-50 font-medium text-sm' }, 'Undo'),
-              e('button', { onClick: () => setManualServerSelect(!manualServerSelect), className: 'px-3 py-2 bg-gray-300 rounded-lg font-medium text-sm' }, 'Select Server'),
+              e('button', { onClick: openEditModal, className: 'px-3 py-2 bg-gray-300 rounded-lg font-medium text-sm' }, 'Edit'),
+              e('button', { onClick: () => setManualServerSelect(!manualServerSelect), className: 'px-3 py-2 bg-gray-300 rounded-lg font-medium text-sm' }, 'Server'),
               e('button', { onClick: () => setScreen('stats'), className: 'px-3 py-2 bg-purple-500 text-white rounded-lg font-medium text-sm' }, 'Stats')),
             manualServerSelect && e('div', { className: 'mb-2 p-2 bg-gray-100 rounded-lg' },
               e('p', { className: 'text-sm mb-2 font-medium' }, 'Select server:'),
@@ -275,25 +397,70 @@
                   showSetColumns && match.sets.map((_, i) => e('th', { key: i, className: 'py-1 px-2 text-center font-medium w-12 text-gray-400' }, `Set ${i + 1}`)))),
                 e('tbody', null,
                   e('tr', { className: 'border-t' },
-                    e('td', { className: 'py-1 px-2 text-blue-600 font-medium text-xs truncate max-w-24' }, getTeamName('teamA')),
+                    e('td', { className: 'py-1 px-2 text-blue-600 font-medium text-xs truncate max-w-24' }, servingTeam === 'teamA' ? '● ' : '', getTeamName('teamA')),
                     e('td', { className: 'py-1 px-2 text-center font-bold text-lg text-blue-600' }, pointsDisplay.a),
                     e('td', { className: 'py-1 px-2 text-center font-bold text-lg' }, match.games.teamA),
                     showSetColumns && match.sets.map((s, i) => e('td', { key: i, className: 'py-1 px-2 text-center font-semibold text-gray-400' }, s.teamA))),
                   e('tr', { className: 'border-t' },
-                    e('td', { className: 'py-1 px-2 text-red-600 font-medium text-xs truncate max-w-24' }, getTeamName('teamB')),
+                    e('td', { className: 'py-1 px-2 text-red-600 font-medium text-xs truncate max-w-24' }, servingTeam === 'teamB' ? '● ' : '', getTeamName('teamB')),
                     e('td', { className: 'py-1 px-2 text-center font-bold text-lg text-red-600' }, pointsDisplay.b),
                     e('td', { className: 'py-1 px-2 text-center font-bold text-lg' }, match.games.teamB),
                     showSetColumns && match.sets.map((s, i) => e('td', { key: i, className: 'py-1 px-2 text-center font-semibold text-gray-400' }, s.teamB))))),
               (match.isTiebreak || match.isSuperTiebreak) && e('div', { className: 'bg-orange-100 text-center py-1 text-sm font-medium' }, match.isSuperTiebreak ? 'SUPER TIEBREAK' : 'TIEBREAK')),
             e('div', { className: 'bg-green-100 rounded-xl p-2' },
               e('div', { className: 'bg-green-50 rounded-lg border-4 border-green-200 p-2' },
-                e('div', { className: 'grid grid-cols-2 gap-2 mb-2' }, renderPlayerBox('teamB', 'left'), renderPlayerBox('teamB', 'right')),
+                e('div', { className: 'grid grid-cols-2 gap-2 mb-2' }, renderPlayerBox('teamA', 'right'), renderPlayerBox('teamA', 'left')),
                 e('div', { className: 'border-t-4 border-green-200 border-dashed my-2' }),
-                e('div', { className: 'grid grid-cols-2 gap-2' }, renderPlayerBox('teamA', 'left'), renderPlayerBox('teamA', 'right')))),
+                e('div', { className: 'grid grid-cols-2 gap-2' }, renderPlayerBox('teamB', 'left'), renderPlayerBox('teamB', 'right')))),
+            e('div', { className: 'flex items-center justify-between mt-3 px-2' },
+              e('div', { className: 'flex items-center gap-2' },
+                e('span', { className: 'text-sm text-gray-600' }, 'Track shot types'),
+                e('div', { className: `toggle-switch ${trackShotTypes ? 'active' : ''}`, onClick: () => setTrackShotTypes(!trackShotTypes) })),
+              e('button', { onClick: endMatchAsDraw, className: 'px-4 py-2 bg-orange-500 text-white rounded-lg font-medium text-sm' }, 'End Match')),
             match.isComplete && e('div', { className: 'mt-4 p-4 bg-yellow-100 rounded-xl text-center' },
               e('h2', { className: 'text-xl font-bold' }, 'Match Complete!'),
-              e('p', { className: 'text-lg' }, `Team ${match.winner === 'teamA' ? 'A' : 'B'} wins!`),
-              e('button', { onClick: () => setScreen('stats'), className: 'mt-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-semibold' }, 'View Stats'))),
+              e('p', { className: 'text-lg' }, match.isDraw ? 'Match ended as a draw' : `${getTeamName(match.winner)} wins!`),
+              e('div', { className: 'flex gap-2 justify-center mt-2' },
+                e('button', { onClick: undo, disabled: history.length === 0, className: 'px-4 py-3 bg-gray-300 rounded-lg font-semibold disabled:opacity-50' }, 'Undo'),
+                e('button', { onClick: () => setScreen('stats'), className: 'px-6 py-3 bg-purple-500 text-white rounded-lg font-semibold' }, 'View Stats')))),
+          showEditModal && e('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
+            e('div', { className: 'bg-white rounded-xl p-4 w-full max-w-sm max-h-[90vh] overflow-y-auto' },
+              e('h3', { className: 'font-bold mb-3 text-center text-lg' }, 'Edit Details'),
+              e('div', { className: 'mb-4' },
+                e('h4', { className: 'font-semibold mb-2 text-blue-600' }, 'Team A'),
+                e('div', { className: 'grid grid-cols-2 gap-2 mb-2' },
+                  e('input', { key: 'teamA-left', placeholder: 'Left player', defaultValue: editPlayers.teamA.left, onBlur: ev => handleEditPlayerChange('teamA', 'left', ev.target.value), className: 'p-2 border rounded text-sm' }),
+                  e('input', { key: 'teamA-right', placeholder: 'Right player', defaultValue: editPlayers.teamA.right, onBlur: ev => handleEditPlayerChange('teamA', 'right', ev.target.value), className: 'p-2 border rounded text-sm' }))),
+              e('div', { className: 'mb-4' },
+                e('h4', { className: 'font-semibold mb-2 text-red-600' }, 'Team B'),
+                e('div', { className: 'grid grid-cols-2 gap-2 mb-2' },
+                  e('input', { key: 'teamB-left', placeholder: 'Left player', defaultValue: editPlayers.teamB.left, onBlur: ev => handleEditPlayerChange('teamB', 'left', ev.target.value), className: 'p-2 border rounded text-sm' }),
+                  e('input', { key: 'teamB-right', placeholder: 'Right player', defaultValue: editPlayers.teamB.right, onBlur: ev => handleEditPlayerChange('teamB', 'right', ev.target.value), className: 'p-2 border rounded text-sm' }))),
+              e('div', { className: 'mb-4' },
+                e('h4', { className: 'font-semibold mb-2' }, 'Games'),
+                e('div', { className: 'grid grid-cols-2 gap-2' },
+                  e('div', null,
+                    e('label', { className: 'text-xs text-gray-500' }, 'Team A'),
+                    e('select', { value: editGames.teamA, onChange: ev => setEditGames(g => ({ ...g, teamA: parseInt(ev.target.value) })), className: 'p-2 border rounded w-full' },
+                      getGamesOptions().map(n => e('option', { key: n, value: n }, n)))),
+                  e('div', null,
+                    e('label', { className: 'text-xs text-gray-500' }, 'Team B'),
+                    e('select', { value: editGames.teamB, onChange: ev => setEditGames(g => ({ ...g, teamB: parseInt(ev.target.value) })), className: 'p-2 border rounded w-full' },
+                      getGamesOptions().map(n => e('option', { key: n, value: n }, n)))))),
+              e('div', { className: 'mb-4' },
+                e('h4', { className: 'font-semibold mb-2' }, 'Points'),
+                e('div', { className: 'grid grid-cols-2 gap-2' },
+                  e('div', null,
+                    e('label', { className: 'text-xs text-gray-500' }, 'Team A'),
+                    e('select', { value: editPoints.teamA, onChange: ev => handlePointsChange('teamA', ev.target.value), className: 'p-2 border rounded w-full' },
+                      ['0', '15', '30', '40', 'AD', 'GP'].map(p => e('option', { key: p, value: p }, p)))),
+                  e('div', null,
+                    e('label', { className: 'text-xs text-gray-500' }, 'Team B'),
+                    e('select', { value: editPoints.teamB, onChange: ev => handlePointsChange('teamB', ev.target.value), className: 'p-2 border rounded w-full' },
+                      ['0', '15', '30', '40', 'AD', 'GP'].map(p => e('option', { key: p, value: p }, p)))))),
+              e('div', { className: 'flex gap-2' },
+                e('button', { onClick: () => setShowEditModal(false), className: 'flex-1 py-3 bg-gray-200 rounded-lg font-semibold' }, 'Cancel'),
+                e('button', { onClick: saveEditModal, className: 'flex-1 py-3 bg-blue-500 text-white rounded-lg font-semibold' }, 'Save')))),
           pendingPoint && e('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
             e('div', { className: 'bg-white rounded-xl p-4 w-full max-w-sm max-h-[90vh] overflow-y-auto' },
               e('h3', { className: 'font-bold mb-3 text-center text-lg' },
@@ -323,44 +490,49 @@
             e('div', { className: 'flex justify-between items-center mb-4' },
               e('button', { onClick: () => setScreen('match'), className: 'px-4 py-2 bg-gray-300 rounded-lg font-medium' }, 'Back'),
               e('h2', { className: 'font-bold text-lg' }, 'Match Stats'),
-              e('button', { onClick: exportStats, className: 'px-4 py-2 bg-blue-500 text-white rounded-lg font-medium' }, 'Export')),
-            e('div', { className: 'mb-4 text-center' },
-              e('div', { className: 'text-sm text-gray-600 font-medium' }, match.sets.map((s, i) => e('span', { key: i, className: 'mx-2 font-mono' }, `${s.teamA}-${s.teamB}`))),
-              match.isComplete && e('p', { className: 'font-bold text-green-600 text-lg' }, `Team ${match.winner === 'teamA' ? 'A' : 'B'} wins!`)),
-            e('div', { className: 'space-y-3 mb-4' }, psa.map((p, i) => e('div', { key: i, className: `p-4 rounded-xl ${p.team === 'teamA' ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'} border-2` },
-              e('h3', { className: 'font-bold mb-2 text-lg' }, p.name),
-              e('div', { className: 'grid grid-cols-3 gap-2 text-center' },
-                e('div', { className: 'bg-white rounded-lg p-2' }, e('div', { className: 'font-bold text-xl text-green-600' }, p.winners), e('div', { className: 'text-xs text-gray-500' }, 'Winners')),
-                e('div', { className: 'bg-white rounded-lg p-2' }, e('div', { className: 'font-bold text-xl text-yellow-600' }, p.forcedErrors), e('div', { className: 'text-xs text-gray-500' }, 'Forced Errors')),
-                e('div', { className: 'bg-white rounded-lg p-2' }, e('div', { className: 'font-bold text-xl text-red-600' }, p.errors), e('div', { className: 'text-xs text-gray-500' }, 'Unforced Errors'))),
-              e('div', { className: 'grid grid-cols-2 gap-2 text-center mt-2' },
-                e('div', { className: 'bg-white rounded-lg p-2' }, e('span', { className: 'font-bold text-lg' }, p.aces), e('span', { className: 'text-xs text-gray-500 ml-1' }, 'Aces')),
-                e('div', { className: 'bg-white rounded-lg p-2' }, e('span', { className: 'font-bold text-lg' }, p.doubleFaults), e('span', { className: 'text-xs text-gray-500 ml-1' }, 'Double Faults'))),
-              Object.keys(p.winnerShots).length > 0 && e('div', { className: 'mt-2 pt-2 border-t' },
-                e('p', { className: 'text-xs text-gray-600 font-semibold mb-1' }, 'Winner Shot Types'),
-                e('div', { className: 'flex flex-wrap gap-1' }, Object.entries(p.winnerShots).map(([shot, count]) => e('span', { key: shot, className: 'bg-white px-2 py-1 rounded-full border text-xs' }, `${shot}: ${count}`))))))),
-            e('div', { className: 'p-4 bg-gray-100 rounded-xl mb-4' },
-              e('h3', { className: 'font-bold mb-3 text-center text-lg' }, 'Team Comparison'),
-              e('div', { className: 'grid grid-cols-3 text-center gap-2' },
-                e('div', { className: 'text-blue-600 font-bold' }, 'Team A'), e('div'), e('div', { className: 'text-red-600 font-bold' }, 'Team B'),
-                e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamA').reduce((a, p) => a + p.winners, 0)), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Winners'), e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamB').reduce((a, p) => a + p.winners, 0)),
-                e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamA').reduce((a, p) => a + p.forcedErrors, 0)), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Forced Errors'), e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamB').reduce((a, p) => a + p.forcedErrors, 0)),
-                e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamA').reduce((a, p) => a + p.errors, 0)), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Unforced Errors'), e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamB').reduce((a, p) => a + p.errors, 0)),
-                e('div', { className: 'text-xl font-bold' }, getBreakPoints('teamA')), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Break Points'), e('div', { className: 'text-xl font-bold' }, getBreakPoints('teamB')),
-                e('div', { className: 'text-xl font-bold' }, getServicePct('teamA')), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Service Points Won'), e('div', { className: 'text-xl font-bold' }, getServicePct('teamB')))),
-            e('div', { className: 'p-4 bg-gray-100 rounded-xl mb-4' },
-              e('h3', { className: 'font-bold mb-3 text-center text-lg' }, 'Player Comparison'),
-              e('div', { className: 'mb-2 flex gap-4 justify-center text-xs' },
-                e('span', { className: 'flex items-center gap-1' }, e('span', { className: 'w-3 h-3 bg-green-500 rounded' }), 'Winners'),
-                e('span', { className: 'flex items-center gap-1' }, e('span', { className: 'w-3 h-3 bg-yellow-500 rounded' }), 'Forced'),
-                e('span', { className: 'flex items-center gap-1' }, e('span', { className: 'w-3 h-3 bg-red-500 rounded' }), 'Unforced')),
-              psa.map((p, i) => e('div', { key: i, className: 'bar-container' },
-                e('div', { className: 'bar-label' }, p.name),
-                e('div', { className: 'bar-group' },
-                  e('div', { className: 'bar bar-winners', style: { width: `${(p.winners / maxVal) * 100}%` } }, p.winners > 0 ? p.winners : ''),
-                  e('div', { className: 'bar bar-forced', style: { width: `${(p.forcedErrors / maxVal) * 100}%` } }, p.forcedErrors > 0 ? p.forcedErrors : ''),
-                  e('div', { className: 'bar bar-unforced', style: { width: `${(p.errors / maxVal) * 100}%` } }, p.errors > 0 ? p.errors : ''))))),
-            e('button', { onClick: () => { setMatch(initialMatchState()); setHistory([]); setPointLog([]); setScreen('setup'); }, className: 'w-full mt-4 py-3 bg-red-500 text-white rounded-xl font-semibold text-lg' }, 'New Match')));
+              e('button', { onClick: shareStats, className: 'px-4 py-2 bg-blue-500 text-white rounded-lg font-medium' }, 'Share')),
+            e('div', { ref: statsRef, className: 'bg-gray-50 p-2' },
+              e('div', { className: 'mb-4 text-center' },
+                e('h1', { className: 'font-bold text-lg mb-1' }, 'Balls to the Wall'),
+                e('div', { className: 'text-sm text-gray-600 font-medium' }, match.sets.map((s, i) => e('span', { key: i, className: 'mx-2 font-mono' }, `${s.teamA}-${s.teamB}`))),
+                match.isComplete && e('p', { className: 'font-bold text-green-600 text-lg' }, match.isDraw ? 'Match ended as a draw' : `${getTeamName(match.winner)} wins!`)),
+              e('div', { className: 'space-y-3 mb-4' }, psa.map((p, i) => e('div', { key: i, className: `p-4 rounded-xl ${p.team === 'teamA' ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'} border-2` },
+                e('h3', { className: 'font-bold mb-2 text-lg' }, p.name),
+                e('div', { className: 'grid grid-cols-3 gap-2 text-center' },
+                  e('div', { className: 'bg-white rounded-lg p-2' }, e('div', { className: 'font-bold text-xl text-green-600' }, p.winners), e('div', { className: 'text-xs text-gray-500' }, 'Winners')),
+                  e('div', { className: 'bg-white rounded-lg p-2' }, e('div', { className: 'font-bold text-xl text-yellow-600' }, p.forcedErrors), e('div', { className: 'text-xs text-gray-500' }, 'Forced Errors')),
+                  e('div', { className: 'bg-white rounded-lg p-2' }, e('div', { className: 'font-bold text-xl text-red-600' }, p.errors), e('div', { className: 'text-xs text-gray-500' }, 'Unforced Errors'))),
+                Object.keys(p.winnerShots).length > 0 && e('div', { className: 'mt-2 pt-2 border-t' },
+                  e('p', { className: 'text-xs text-gray-600 font-semibold mb-1' }, 'Winner Shot Types'),
+                  e('div', { className: 'flex flex-wrap gap-1' }, Object.entries(p.winnerShots).map(([shot, count]) => e('span', { key: shot, className: 'bg-white px-2 py-1 rounded-full border text-xs' }, `${shot}: ${count}`)))),
+                Object.keys(p.errorShots).length > 0 && e('div', { className: 'mt-2 pt-2 border-t' },
+                  e('p', { className: 'text-xs text-gray-600 font-semibold mb-1' }, 'Unforced Error Shot Types'),
+                  e('div', { className: 'flex flex-wrap gap-1' }, Object.entries(p.errorShots).map(([shot, count]) => e('span', { key: shot, className: 'bg-white px-2 py-1 rounded-full border text-xs' }, `${shot}: ${count}`))))))),
+              e('div', { className: 'p-4 bg-gray-100 rounded-xl mb-4' },
+                e('h3', { className: 'font-bold mb-3 text-center text-lg' }, 'Team Comparison'),
+                e('div', { className: 'grid grid-cols-3 text-center gap-2' },
+                  e('div', { className: 'text-blue-600 font-bold text-xs' }, getTeamName('teamA')), e('div'), e('div', { className: 'text-red-600 font-bold text-xs' }, getTeamName('teamB')),
+                  e('div', { className: 'text-xl font-bold' }, teamStats.teamA.totalPointsWon), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Total Points Won'), e('div', { className: 'text-xl font-bold' }, teamStats.teamB.totalPointsWon),
+                  e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamA').reduce((a, p) => a + p.winners, 0)), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Winners'), e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamB').reduce((a, p) => a + p.winners, 0)),
+                  e('div', { className: 'text-xl font-bold' }, teamStats.teamA.overheadWinners), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Overhead Winners'), e('div', { className: 'text-xl font-bold' }, teamStats.teamB.overheadWinners),
+                  e('div', { className: 'text-xl font-bold' }, teamStats.teamA.volleyWinners), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Volley Winners'), e('div', { className: 'text-xl font-bold' }, teamStats.teamB.volleyWinners),
+                  e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamA').reduce((a, p) => a + p.forcedErrors, 0)), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Forced Errors'), e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamB').reduce((a, p) => a + p.forcedErrors, 0)),
+                  e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamA').reduce((a, p) => a + p.errors, 0)), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Unforced Errors'), e('div', { className: 'text-xl font-bold' }, psa.filter(p => p.team === 'teamB').reduce((a, p) => a + p.errors, 0)),
+                  e('div', { className: 'text-xl font-bold' }, getBreakPoints('teamA')), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Break Points'), e('div', { className: 'text-xl font-bold' }, getBreakPoints('teamB')),
+                  e('div', { className: 'text-xl font-bold' }, getServicePct('teamA')), e('div', { className: 'text-sm text-gray-500 self-center' }, 'Service Points Won'), e('div', { className: 'text-xl font-bold' }, getServicePct('teamB')))),
+              e('div', { className: 'p-4 bg-gray-100 rounded-xl mb-4' },
+                e('h3', { className: 'font-bold mb-3 text-center text-lg' }, 'Player Comparison'),
+                e('div', { className: 'mb-2 flex gap-4 justify-center text-xs' },
+                  e('span', { className: 'flex items-center gap-1' }, e('span', { className: 'w-3 h-3 bg-green-500 rounded' }), 'Winners'),
+                  e('span', { className: 'flex items-center gap-1' }, e('span', { className: 'w-3 h-3 bg-yellow-500 rounded' }), 'Forced'),
+                  e('span', { className: 'flex items-center gap-1' }, e('span', { className: 'w-3 h-3 bg-red-500 rounded' }), 'Unforced')),
+                psa.map((p, i) => e('div', { key: i, className: 'bar-container' },
+                  e('div', { className: 'bar-label' }, p.name),
+                  e('div', { className: 'bar-group' },
+                    e('div', { className: 'bar bar-winners', style: { width: `${(p.winners / maxVal) * 100}%` } }, p.winners > 0 ? p.winners : ''),
+                    e('div', { className: 'bar bar-forced', style: { width: `${(p.forcedErrors / maxVal) * 100}%` } }, p.forcedErrors > 0 ? p.forcedErrors : ''),
+                    e('div', { className: 'bar bar-unforced', style: { width: `${(p.errors / maxVal) * 100}%` } }, p.errors > 0 ? p.errors : '')))))),
+            e('button', { onClick: () => { setMatch(initialMatchState()); setHistory([]); setPointLog([]); setScreen('setup'); }, className: 'btn-3d-red-lg w-full mt-4 py-4 text-white rounded-xl font-semibold text-lg' }, 'New Match')));
       }
 
       return null;
