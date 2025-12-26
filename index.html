@@ -400,7 +400,7 @@
             e('div', { className: 'mb-4' }, 
               e('label', { className: 'block text-sm font-medium mb-2' }, 'Games per Set'),
               e('div', { className: 'flex gap-2' }, 
-                [4, 6].map(n => e('button', { key: n, onClick: () => { setGamesPerSet(n); setTiebreakRule(n === 4 ? 'early' : 'standard'); }, className: `flex-1 py-2 rounded ${gamesPerSet === n ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, `First to ${n}`)))),
+                [4, 6].map(n => e('button', { key: n, onClick: () => { setGamesPerSet(n); setTiebreakRule(n === 4 ? 'early' : 'standard'); }, className: `flex-1 py-2 rounded ${gamesPerSet === n ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, n)))),
             e('div', { className: 'mb-4' }, 
               e('label', { className: 'block text-sm font-medium mb-2' }, 'Tiebreak Rule'),
               e('div', { className: 'flex gap-2' }, 
