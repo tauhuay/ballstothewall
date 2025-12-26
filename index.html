@@ -389,13 +389,13 @@
             e('div', { className: 'mb-4' }, 
               e('label', { className: 'block text-sm font-medium mb-2' }, 'Match Format'),
               e('div', { className: 'flex gap-2' }, 
-                [{ value: '1set', label: '1 Set' }, { value: 'bestOf3', label: 'Best of 3' }, { value: 'superTiebreak', label: '2 Sets + Super TB' }].map(opt => 
-                  e('button', { key: opt.value, onClick: () => setMatchFormat(opt.value), className: `flex-1 py-2 rounded text-sm ${matchFormat === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, opt.label)))),
+                [{ value: '1set', label: '1 Set', label2: null }, { value: 'bestOf3', label: 'Best of 3', label2: null }, { value: 'superTiebreak', label: '2 Sets + Super TB', label2: '(10 points)' }].map(opt => 
+                  e('button', { key: opt.value, onClick: () => setMatchFormat(opt.value), className: `flex-1 py-2 rounded text-sm ${matchFormat === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, opt.label2 ? e('span', null, opt.label, e('br'), e('span', { className: 'text-xs' }, opt.label2)) : opt.label)))),
             e('div', { className: 'mb-4' }, 
               e('label', { className: 'block text-sm font-medium mb-2' }, 'Deuce Scoring'),
               e('div', { className: 'flex gap-2' }, 
-                [{ value: 'advantage', label: 'Advantage' }, { value: 'golden1', label: 'Golden Point (1 deuce)' }, { value: 'golden2', label: 'Golden Point (2 deuces)' }].map(opt => 
-                  e('button', { key: opt.value, onClick: () => setScoringType(opt.value), className: `flex-1 py-2 rounded text-xs ${scoringType === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, opt.label))),
+                [{ value: 'advantage', label: 'Advantage', label2: null }, { value: 'golden1', label: 'Golden Point', label2: '(1 deuce)' }, { value: 'golden2', label: 'Golden Point', label2: '(2 deuces)' }].map(opt => 
+                  e('button', { key: opt.value, onClick: () => setScoringType(opt.value), className: `flex-1 py-2 rounded text-xs ${scoringType === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, opt.label2 ? e('span', null, opt.label, e('br'), e('span', null, opt.label2)) : opt.label))),
               e('p', { className: 'text-xs text-gray-500 mt-1' }, scoringType === 'advantage' ? 'Standard: must win by 2 points after deuce' : scoringType === 'golden1' ? 'Deciding point at first deuce' : 'One advantage, then deciding point')),
             e('div', { className: 'mb-4' }, 
               e('label', { className: 'block text-sm font-medium mb-2' }, 'Games per Set'),
