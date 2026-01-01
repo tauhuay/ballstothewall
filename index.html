@@ -219,22 +219,105 @@
         let dc = match.deuceCount;
         if (editPoints.teamA === 'GP' || editPoints.teamB === 'GP') dc = editScoringType === 'golden2' ? 1 : 0;
         
+        const gA = editGames.teamA, gB = editGames.teamB;
+        
+        // Check if the edited score completes a set
+        const checkSetComplete = () => {
+          if (editTiebreakRule === 'noTiebreak') {
+            if ((gA >= editGamesPerSet || gB >= editGamesPerSet) && gA !== gB) {
+              return gA > gB ? 'teamA' : 'teamB';
+            }
+          } else if (editTiebreakRule === 'early' && editGamesPerSet === 4) {
+            if ((gA >= 4 || gB >= 4) && Math.abs(gA - gB) >= 2) {
+              return gA > gB ? 'teamA' : 'teamB';
+            }
+          } else {
+            if ((gA >= editGamesPerSet || gB >= editGamesPerSet) && Math.abs(gA - gB) >= 2) {
+              return gA > gB ? 'teamA' : 'teamB';
+            }
+          }
+          return null;
+        };
+        
         // Determine if we should be in tiebreak based on new settings
         let shouldBeTiebreak = false;
-        const gA = editGames.teamA, gB = editGames.teamB;
         if (editTiebreakRule !== 'noTiebreak') {
           if (editTiebreakRule === 'early' && editGamesPerSet === 4 && gA === 3 && gB === 3) shouldBeTiebreak = true;
           else if (editTiebreakRule === 'standard' && gA === editGamesPerSet && gB === editGamesPerSet) shouldBeTiebreak = true;
         }
         
-        setMatch(m => ({ 
-          ...m, 
-          games: editGames, 
-          points: { teamA: ptsA, teamB: ptsB }, 
-          deuceCount: dc,
-          isTiebreak: shouldBeTiebreak && !m.isSuperTiebreak,
-          tiebreakPoints: shouldBeTiebreak && !m.isSuperTiebreak ? m.tiebreakPoints : { teamA: 0, teamB: 0 }
-        }));
+        const setWinner = checkSetComplete();
+        
+        if (setWinner) {
+          // Set is complete, handle set won logic
+          setMatch(m => {
+            let newMatch = JSON.parse(JSON.stringify(m));
+            newMatch.sets[newMatch.currentSet] = { teamA: gA, teamB: gB };
+            
+            // Count sets won
+            const setsWon = { teamA: 0, teamB: 0 };
+            newMatch.sets.forEach(s => { 
+              if (s.teamA > s.teamB) setsWon.teamA++; 
+              else if (s.teamB > s.teamA) setsWon.teamB++; 
+            });
+            
+            // Check if match is complete
+            if (editMatchFormat === '1set') {
+              newMatch.isComplete = true;
+              newMatch.winner = setWinner;
+            } else if (editMatchFormat === 'superTiebreak') {
+              if (setsWon.teamA >= 1 && setsWon.teamB >= 1) {
+                // Go to super tiebreak
+                newMatch.currentSet++;
+                newMatch.sets.push({ teamA: 0, teamB: 0 });
+                newMatch.games = { teamA: 0, teamB: 0 };
+                newMatch.points = { teamA: 0, teamB: 0 };
+                newMatch.isTiebreak = false;
+                newMatch.isSuperTiebreak = true;
+                newMatch.tiebreakPoints = { teamA: 0, teamB: 0 };
+                newMatch.tiebreakServerIndex = newMatch.serverIndex;
+                newMatch.tiebreakPointCount = 0;
+                newMatch.deuceCount = 0;
+              } else if (setsWon[setWinner] >= 2) {
+                newMatch.isComplete = true;
+                newMatch.winner = setWinner;
+              } else {
+                // Start next set
+                newMatch.currentSet++;
+                newMatch.sets.push({ teamA: 0, teamB: 0 });
+                newMatch.games = { teamA: 0, teamB: 0 };
+                newMatch.points = { teamA: 0, teamB: 0 };
+                newMatch.isTiebreak = false;
+                newMatch.deuceCount = 0;
+              }
+            } else if (editMatchFormat === 'bestOf3') {
+              if (setsWon[setWinner] >= 2) {
+                newMatch.isComplete = true;
+                newMatch.winner = setWinner;
+              } else {
+                // Start next set
+                newMatch.currentSet++;
+                newMatch.sets.push({ teamA: 0, teamB: 0 });
+                newMatch.games = { teamA: 0, teamB: 0 };
+                newMatch.points = { teamA: 0, teamB: 0 };
+                newMatch.isTiebreak = false;
+                newMatch.deuceCount = 0;
+              }
+            }
+            
+            return newMatch;
+          });
+        } else {
+          // Set not complete, just update the score
+          setMatch(m => ({ 
+            ...m, 
+            games: editGames, 
+            points: { teamA: ptsA, teamB: ptsB }, 
+            deuceCount: dc,
+            isTiebreak: shouldBeTiebreak && !m.isSuperTiebreak,
+            tiebreakPoints: shouldBeTiebreak && !m.isSuperTiebreak ? m.tiebreakPoints : { teamA: 0, teamB: 0 }
+          }));
+        }
         setShowEditModal(false);
       };
 
@@ -630,32 +713,32 @@
             // Team A players
             e('div', { className: 'space-y-2' },
               psa.filter(p => p.team === 'teamA').map((p, i) => e('div', { key: i, className: 'p-2 rounded-lg bg-blue-50 border-2 border-blue-200' },
-                e('div', { className: 'font-bold text-sm mb-1' }, p.name),
+                e('div', { className: 'font-bold text-sm mb-2' }, p.name),
                 e('div', { className: 'flex gap-2 text-center' },
-                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-green-600' }, p.winners), e('div', { className: 'text-[8px] text-gray-500' }, 'Winners')),
-                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-yellow-600' }, p.forcedErrors), e('div', { className: 'text-[8px] text-gray-500' }, 'Forced')),
-                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-red-600' }, p.errors), e('div', { className: 'text-[8px] text-gray-500' }, 'Unforced'))),
+                  e('div', { className: 'flex-1 bg-white rounded py-0.5 px-1' }, e('div', { className: 'font-bold text-green-600 text-sm' }, p.winners), e('div', { className: 'text-[7px] text-gray-500' }, 'Winners')),
+                  e('div', { className: 'flex-1 bg-white rounded py-0.5 px-1' }, e('div', { className: 'font-bold text-yellow-600 text-sm' }, p.forcedErrors), e('div', { className: 'text-[7px] text-gray-500' }, 'Forced')),
+                  e('div', { className: 'flex-1 bg-white rounded py-0.5 px-1' }, e('div', { className: 'font-bold text-red-600 text-sm' }, p.errors), e('div', { className: 'text-[7px] text-gray-500' }, 'Unforced'))),
                 (getTop3Shots(p.winnerShots).length > 0 || getTop3Shots(p.errorShots).length > 0) && e('div', { className: 'mt-1 pt-1 border-t border-blue-200 text-[8px]' },
-                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, '✓ ', getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
-                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, '✗ ', getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')))))),
+                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, e('span', { className: 'font-semibold' }, 'Top Winners: '), getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
+                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, e('span', { className: 'font-semibold' }, 'Top UE: '), getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')))))),
             // Team B players
             e('div', { className: 'space-y-2' },
               psa.filter(p => p.team === 'teamB').map((p, i) => e('div', { key: i, className: 'p-2 rounded-lg bg-red-50 border-2 border-red-200' },
-                e('div', { className: 'font-bold text-sm mb-1' }, p.name),
+                e('div', { className: 'font-bold text-sm mb-2' }, p.name),
                 e('div', { className: 'flex gap-2 text-center' },
-                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-green-600' }, p.winners), e('div', { className: 'text-[8px] text-gray-500' }, 'Winners')),
-                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-yellow-600' }, p.forcedErrors), e('div', { className: 'text-[8px] text-gray-500' }, 'Forced')),
-                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-red-600' }, p.errors), e('div', { className: 'text-[8px] text-gray-500' }, 'Unforced'))),
+                  e('div', { className: 'flex-1 bg-white rounded py-0.5 px-1' }, e('div', { className: 'font-bold text-green-600 text-sm' }, p.winners), e('div', { className: 'text-[7px] text-gray-500' }, 'Winners')),
+                  e('div', { className: 'flex-1 bg-white rounded py-0.5 px-1' }, e('div', { className: 'font-bold text-yellow-600 text-sm' }, p.forcedErrors), e('div', { className: 'text-[7px] text-gray-500' }, 'Forced')),
+                  e('div', { className: 'flex-1 bg-white rounded py-0.5 px-1' }, e('div', { className: 'font-bold text-red-600 text-sm' }, p.errors), e('div', { className: 'text-[7px] text-gray-500' }, 'Unforced'))),
                 (getTop3Shots(p.winnerShots).length > 0 || getTop3Shots(p.errorShots).length > 0) && e('div', { className: 'mt-1 pt-1 border-t border-red-200 text-[8px]' },
-                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, '✓ ', getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
-                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, '✗ ', getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', '))))))),
+                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, e('span', { className: 'font-semibold' }, 'Top Winners: '), getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
+                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, e('span', { className: 'font-semibold' }, 'Top UE: '), getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')))))))),
           // Compact team comparison
           e('div', { className: 'p-2 bg-gray-100 rounded-lg' },
             e('div', { className: 'grid grid-cols-7 gap-1 text-center text-xs' },
               e('div'),
               e('div', { className: 'text-gray-500' }, 'Pts'),
               e('div', { className: 'text-gray-500' }, 'Win'),
-              e('div', { className: 'text-gray-500' }, 'Frc'),
+              e('div', { className: 'text-gray-500' }, 'FE'),
               e('div', { className: 'text-gray-500' }, 'UE'),
               e('div', { className: 'text-gray-500' }, 'BP'),
               e('div', { className: 'text-gray-500' }, 'Svc%'),
