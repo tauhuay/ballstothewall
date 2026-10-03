@@ -83,8 +83,10 @@
     const SHOT_GROUPS = [
       { label: 'Overheads', shots: ['Bandeja', 'Víbora', 'Smash', 'Por Tres', 'Por Cuatro', 'Rulo'] },
       { label: 'Net', shots: ['FH Volley', 'BH Volley', 'Drop Shot'] },
-      { label: 'Other', shots: ['FH Groundstroke', 'BH Groundstroke', 'Lob', 'Chiquita', 'Bajada', 'Contrapared', 'Side Glass', 'Fake Smash'] }
+      { label: 'Other', shots: ['FH Groundstroke', 'BH Groundstroke', 'Lob', 'FH Off the Wall', 'BH Off the Wall', 'Chiquita', 'Bajada', 'Contrapared', 'Side Glass', 'Fake Smash', 'Serve Return', 'Counter Smash', 'Double Wall'] }
     ];
+
+    const ERROR_ONLY_SHOTS = ['Double Wall'];
 
     const OVERHEAD_SHOTS = ['Bandeja', 'Víbora', 'Smash', 'Por Tres', 'Por Cuatro', 'Rulo', 'Bajada'];
     const VOLLEY_SHOTS = ['FH Volley', 'BH Volley'];
@@ -123,8 +125,9 @@
       const [editTiebreakRule, setEditTiebreakRule] = useState('standard');
       const [showEndMatchOptions, setShowEndMatchOptions] = useState(false);
       const [isLoaded, setIsLoaded] = useState(false);
+      const [firstServer, setFirstServer] = useState('teamA'); // 'teamA' or 'teamB' - which team's right player serves first
       const [serverOrder, setServerOrder] = useState(DEFAULT_SERVER_ORDER);
-      const [serveOrderConfirmed, setServeOrderConfirmed] = useState(false);
+      const [customServeOrder, setCustomServeOrder] = useState([0, 1, 2, 3]); // indices for drag-drop reordering
       const statsRef = useRef(null);
 
       const hasMatchInProgress = () => {
@@ -147,8 +150,8 @@
               if (saved.history) setHistory(saved.history);
               if (saved.pointLog) setPointLog(saved.pointLog);
               if (saved.trackShotTypes !== undefined) setTrackShotTypes(saved.trackShotTypes);
+              if (saved.firstServer) setFirstServer(saved.firstServer);
               if (saved.serverOrder) setServerOrder(saved.serverOrder);
-              if (saved.serveOrderConfirmed !== undefined) setServeOrderConfirmed(saved.serveOrderConfirmed);
             }
           } catch (err) {}
           setIsLoaded(true);
@@ -160,30 +163,39 @@
         if (!isLoaded) return;
         const saveState = async () => {
           try {
-            const stateToSave = { screen, matchFormat, scoringType, gamesPerSet, tiebreakRule, players, match, history, pointLog, trackShotTypes, serverOrder, serveOrderConfirmed };
+            const stateToSave = { screen, matchFormat, scoringType, gamesPerSet, tiebreakRule, players, match, history, pointLog, trackShotTypes, firstServer, serverOrder };
             await window.storage.set('padel-tracker-state', JSON.stringify(stateToSave));
           } catch (err) {}
         };
         saveState();
-      }, [isLoaded, screen, matchFormat, scoringType, gamesPerSet, tiebreakRule, players, match, history, pointLog, trackShotTypes, serverOrder, serveOrderConfirmed]);
+      }, [isLoaded, screen, matchFormat, scoringType, gamesPerSet, tiebreakRule, players, match, history, pointLog, trackShotTypes, firstServer, serverOrder]);
 
       const getCurrentServer = () => serverOrder[match.isTiebreak || match.isSuperTiebreak ? match.tiebreakServerIndex : match.serverIndex];
       const getPlayerName = (team, side) => players[team][side] || `${team === 'teamA' ? 'A' : 'B'}-${side}`;
       const getTeamName = (team) => `${getPlayerName(team, 'right')} / ${getPlayerName(team, 'left')}`;
 
-      // Set serve order based on which player serves first (standard rotation)
-      const setFirstServer = (team, side) => {
-        const partnerSide = side === 'right' ? 'left' : 'right';
-        const otherTeam = team === 'teamA' ? 'teamB' : 'teamA';
-        // Standard rotation: first server's team alternates with other team
-        // Partner of first server is 3rd, partner of 2nd server is 4th
-        setServerOrder([
-          { team: team, side: side },
-          { team: otherTeam, side: 'right' },
-          { team: team, side: partnerSide },
-          { team: otherTeam, side: 'left' }
-        ]);
-        setServeOrderConfirmed(true);
+      // Set serve order based on which team's right player serves first
+      const setFirstServerTeam = (team) => {
+        setFirstServer(team);
+        if (team === 'teamA') {
+          setServerOrder([
+            { team: 'teamA', side: 'right' }, { team: 'teamB', side: 'right' },
+            { team: 'teamA', side: 'left' }, { team: 'teamB', side: 'left' }
+          ]);
+        } else {
+          setServerOrder([
+            { team: 'teamB', side: 'right' }, { team: 'teamA', side: 'right' },
+            { team: 'teamB', side: 'left' }, { team: 'teamA', side: 'left' }
+          ]);
+        }
+      };
+
+      // For custom serve order modal - move a player to a specific position
+      const moveServerToPosition = (fromIndex, toIndex) => {
+        const newOrder = [...serverOrder];
+        const [moved] = newOrder.splice(fromIndex, 1);
+        newOrder.splice(toIndex, 0, moved);
+        setServerOrder(newOrder);
       };
 
       const updatePlayer = useCallback((team, side, value) => {
@@ -219,105 +231,22 @@
         let dc = match.deuceCount;
         if (editPoints.teamA === 'GP' || editPoints.teamB === 'GP') dc = editScoringType === 'golden2' ? 1 : 0;
         
-        const gA = editGames.teamA, gB = editGames.teamB;
-        
-        // Check if the edited score completes a set
-        const checkSetComplete = () => {
-          if (editTiebreakRule === 'noTiebreak') {
-            if ((gA >= editGamesPerSet || gB >= editGamesPerSet) && gA !== gB) {
-              return gA > gB ? 'teamA' : 'teamB';
-            }
-          } else if (editTiebreakRule === 'early' && editGamesPerSet === 4) {
-            if ((gA >= 4 || gB >= 4) && Math.abs(gA - gB) >= 2) {
-              return gA > gB ? 'teamA' : 'teamB';
-            }
-          } else {
-            if ((gA >= editGamesPerSet || gB >= editGamesPerSet) && Math.abs(gA - gB) >= 2) {
-              return gA > gB ? 'teamA' : 'teamB';
-            }
-          }
-          return null;
-        };
-        
         // Determine if we should be in tiebreak based on new settings
         let shouldBeTiebreak = false;
+        const gA = editGames.teamA, gB = editGames.teamB;
         if (editTiebreakRule !== 'noTiebreak') {
           if (editTiebreakRule === 'early' && editGamesPerSet === 4 && gA === 3 && gB === 3) shouldBeTiebreak = true;
           else if (editTiebreakRule === 'standard' && gA === editGamesPerSet && gB === editGamesPerSet) shouldBeTiebreak = true;
         }
         
-        const setWinner = checkSetComplete();
-        
-        if (setWinner) {
-          // Set is complete, handle set won logic
-          setMatch(m => {
-            let newMatch = JSON.parse(JSON.stringify(m));
-            newMatch.sets[newMatch.currentSet] = { teamA: gA, teamB: gB };
-            
-            // Count sets won
-            const setsWon = { teamA: 0, teamB: 0 };
-            newMatch.sets.forEach(s => { 
-              if (s.teamA > s.teamB) setsWon.teamA++; 
-              else if (s.teamB > s.teamA) setsWon.teamB++; 
-            });
-            
-            // Check if match is complete
-            if (editMatchFormat === '1set') {
-              newMatch.isComplete = true;
-              newMatch.winner = setWinner;
-            } else if (editMatchFormat === 'superTiebreak') {
-              if (setsWon.teamA >= 1 && setsWon.teamB >= 1) {
-                // Go to super tiebreak
-                newMatch.currentSet++;
-                newMatch.sets.push({ teamA: 0, teamB: 0 });
-                newMatch.games = { teamA: 0, teamB: 0 };
-                newMatch.points = { teamA: 0, teamB: 0 };
-                newMatch.isTiebreak = false;
-                newMatch.isSuperTiebreak = true;
-                newMatch.tiebreakPoints = { teamA: 0, teamB: 0 };
-                newMatch.tiebreakServerIndex = newMatch.serverIndex;
-                newMatch.tiebreakPointCount = 0;
-                newMatch.deuceCount = 0;
-              } else if (setsWon[setWinner] >= 2) {
-                newMatch.isComplete = true;
-                newMatch.winner = setWinner;
-              } else {
-                // Start next set
-                newMatch.currentSet++;
-                newMatch.sets.push({ teamA: 0, teamB: 0 });
-                newMatch.games = { teamA: 0, teamB: 0 };
-                newMatch.points = { teamA: 0, teamB: 0 };
-                newMatch.isTiebreak = false;
-                newMatch.deuceCount = 0;
-              }
-            } else if (editMatchFormat === 'bestOf3') {
-              if (setsWon[setWinner] >= 2) {
-                newMatch.isComplete = true;
-                newMatch.winner = setWinner;
-              } else {
-                // Start next set
-                newMatch.currentSet++;
-                newMatch.sets.push({ teamA: 0, teamB: 0 });
-                newMatch.games = { teamA: 0, teamB: 0 };
-                newMatch.points = { teamA: 0, teamB: 0 };
-                newMatch.isTiebreak = false;
-                newMatch.deuceCount = 0;
-              }
-            }
-            
-            return newMatch;
-          });
-        } else {
-          // Set not complete, just update the score
-          setMatch(m => ({ 
-            ...m, 
-            games: editGames, 
-            points: { teamA: ptsA, teamB: ptsB }, 
-            deuceCount: dc,
-            isTiebreak: shouldBeTiebreak && !m.isSuperTiebreak,
-            tiebreakPoints: shouldBeTiebreak && !m.isSuperTiebreak ? m.tiebreakPoints : { teamA: 0, teamB: 0 }
-          }));
-        }
+        setMatch(m => ({ 
+          ...m, 
+          games: editGames, 
+          points: { teamA: ptsA, teamB: ptsB }, 
+          deuceCount: dc,
+          isTiebreak: shouldBeTiebreak && !m.isSuperTiebreak,
+          tiebreakPoints: shouldBeTiebreak && !m.isSuperTiebreak ? m.tiebreakPoints : { teamA: 0, teamB: 0 }
+        }));
         setShowEditModal(false);
       };
 
@@ -465,8 +394,6 @@
         setMatch(initialMatchState());
         setHistory([]);
         setPointLog([]);
-        setServeOrderConfirmed(false);
-        setServerOrder(DEFAULT_SERVER_ORDER);
       };
 
       const getStats = () => {
@@ -529,7 +456,18 @@
             e('div', { className: 'mb-4' }, e('label', { className: 'block text-sm font-medium mb-2' }, 'Games per Set'), e('div', { className: 'flex gap-2' }, [4, 6].map(n => e('button', { key: n, onClick: () => { setGamesPerSet(n); setTiebreakRule(n === 4 ? 'early' : 'standard'); }, className: `flex-1 py-2 rounded ${gamesPerSet === n ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, n)))),
             e('div', { className: 'mb-4' }, e('label', { className: 'block text-sm font-medium mb-2' }, 'Tiebreak Rule'), e('div', { className: 'flex gap-2' }, getTiebreakOptions().map(opt => e('button', { key: opt.value, onClick: () => setTiebreakRule(opt.value), className: `flex-1 py-2 rounded text-sm ${tiebreakRule === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-200'}` }, opt.label)))),
             e('div', { className: 'mb-4' }, e('h2', { className: 'font-semibold mb-2 text-blue-600' }, 'Team A'), e('div', { className: 'grid grid-cols-2 gap-2' }, e('input', { placeholder: 'Left player', value: players.teamA.left, onChange: ev => updatePlayer('teamA', 'left', ev.target.value), className: 'p-2 border rounded' }), e('input', { placeholder: 'Right player', value: players.teamA.right, onChange: ev => updatePlayer('teamA', 'right', ev.target.value), className: 'p-2 border rounded' }))),
-            e('div', { className: 'mb-6' }, e('h2', { className: 'font-semibold mb-2 text-red-600' }, 'Team B'), e('div', { className: 'grid grid-cols-2 gap-2' }, e('input', { placeholder: 'Left player', value: players.teamB.left, onChange: ev => updatePlayer('teamB', 'left', ev.target.value), className: 'p-2 border rounded' }), e('input', { placeholder: 'Right player', value: players.teamB.right, onChange: ev => updatePlayer('teamB', 'right', ev.target.value), className: 'p-2 border rounded' }))),
+            e('div', { className: 'mb-4' }, e('h2', { className: 'font-semibold mb-2 text-red-600' }, 'Team B'), e('div', { className: 'grid grid-cols-2 gap-2' }, e('input', { placeholder: 'Left player', value: players.teamB.left, onChange: ev => updatePlayer('teamB', 'left', ev.target.value), className: 'p-2 border rounded' }), e('input', { placeholder: 'Right player', value: players.teamB.right, onChange: ev => updatePlayer('teamB', 'right', ev.target.value), className: 'p-2 border rounded' }))),
+            e('div', { className: 'mb-6' }, 
+              e('label', { className: 'block text-sm font-medium mb-2' }, 'First Server'),
+              e('div', { className: 'flex gap-2' },
+                e('button', { 
+                  onClick: () => setFirstServerTeam('teamA'), 
+                  className: `flex-1 py-3 rounded-lg font-medium ${firstServer === 'teamA' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-600 border-2 border-blue-300'}` 
+                }, getPlayerName('teamA', 'right') || 'A-right'),
+                e('button', { 
+                  onClick: () => setFirstServerTeam('teamB'), 
+                  className: `flex-1 py-3 rounded-lg font-medium ${firstServer === 'teamB' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-600 border-2 border-red-300'}` 
+                }, getPlayerName('teamB', 'right') || 'B-right'))),
             e('button', { onClick: () => { setScreen('match'); }, className: 'btn-3d w-full py-5 text-white font-bold text-xl rounded-xl' }, matchInProgress ? 'Continue Match' : 'Start Match'),
             matchInProgress && e('button', { onClick: () => { startNewMatch(); }, className: 'w-full mt-6 py-3 bg-gray-300 rounded-xl font-semibold text-gray-700' }, 'Start New Match')));
       }
@@ -538,7 +476,6 @@
         const server = getCurrentServer();
         const pointsDisplay = (match.isTiebreak || match.isSuperTiebreak) ? { a: match.tiebreakPoints.teamA.toString(), b: match.tiebreakPoints.teamB.toString() } : formatPoints(match.points.teamA, match.points.teamB, match.deuceCount);
         const showSetColumns = matchFormat !== '1set';
-        const currentServerIndex = match.isTiebreak || match.isSuperTiebreak ? match.tiebreakServerIndex : match.serverIndex;
         
         const renderPlayerBox = (team, side) => {
           const isServer = server.team === team && server.side === side;
@@ -551,102 +488,65 @@
             e('div', { className: 'flex gap-1 h-24' }, e('button', { onClick: () => handlePointScored(team, side, 'winner'), className: 'btn-3d-sm flex-1 text-white text-sm rounded-lg font-semibold flex items-center justify-center' }, 'Winner'), e('div', { className: 'flex flex-col gap-2 w-1/2' }, e('button', { onClick: () => handlePointScored(team, side, 'forced'), className: 'btn-3d-yellow flex-1 text-white text-xs rounded-lg font-semibold flex items-center justify-center px-1' }, 'Forced'), e('button', { onClick: () => handlePointScored(team, side, 'error'), className: 'btn-3d-red flex-1 text-white text-xs rounded-lg font-semibold flex items-center justify-center px-1' }, 'Unforced'))));
         };
 
-        // Simplified serve order modal
+        // Serve order modal with tap-to-select reordering
         const ServeOrderModal = () => {
-          const [editingPosition, setEditingPosition] = useState(null);
+          const [selectedSlot, setSelectedSlot] = useState(null);
+          const allPlayers = [
+            { team: 'teamA', side: 'right' }, { team: 'teamA', side: 'left' },
+            { team: 'teamB', side: 'right' }, { team: 'teamB', side: 'left' }
+          ];
           
-          // Get partner side
-          const getPartner = (team, side) => ({ team, side: side === 'right' ? 'left' : 'right' });
-          
-          // Handle selecting a player for a position
-          const handleSelectPlayer = (player) => {
-            if (editingPosition === null) return;
-            
-            const newOrder = [...serverOrder];
-            const partner = getPartner(player.team, player.side);
-            
-            if (editingPosition === 0 || editingPosition === 2) {
-              // Editing 1st or 3rd position - they must be partners
-              newOrder[0] = player;
-              newOrder[2] = partner;
+          const handleSlotClick = (index) => {
+            if (selectedSlot === null) {
+              setSelectedSlot(index);
             } else {
-              // Editing 2nd or 4th position - they must be partners
-              newOrder[1] = player;
-              newOrder[3] = partner;
-            }
-            
-            setServerOrder(newOrder);
-            setEditingPosition(null);
-          };
-          
-          // Set current server by clicking on a row
-          const handleSetCurrentServer = (index) => {
-            if (match.isTiebreak || match.isSuperTiebreak) {
-              setMatch(m => ({ ...m, tiebreakServerIndex: index }));
-            } else {
-              setMatch(m => ({ ...m, serverIndex: index }));
+              // Swap the two positions
+              const newOrder = [...serverOrder];
+              const temp = newOrder[selectedSlot];
+              newOrder[selectedSlot] = newOrder[index];
+              newOrder[index] = temp;
+              setServerOrder(newOrder);
+              setSelectedSlot(null);
             }
           };
           
-          // Get available players for a position (exclude players already in paired positions)
-          const getAvailablePlayers = () => {
-            const allPlayers = [
-              { team: 'teamA', side: 'right' }, { team: 'teamA', side: 'left' },
-              { team: 'teamB', side: 'right' }, { team: 'teamB', side: 'left' }
-            ];
-            return allPlayers;
+          const handlePlayerClick = (player) => {
+            if (selectedSlot !== null) {
+              const newOrder = [...serverOrder];
+              newOrder[selectedSlot] = player;
+              setServerOrder(newOrder);
+              setSelectedSlot(null);
+            }
           };
 
           return e('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
             e('div', { className: 'bg-white rounded-xl p-4 w-full max-w-sm' },
-              e('h3', { className: 'font-bold mb-2 text-center text-lg' }, 'Serve Order'),
-              e('p', { className: 'text-xs text-gray-500 mb-3 text-center' }, 'Tap position to edit, tap row to set current server'),
+              e('h3', { className: 'font-bold mb-4 text-center text-lg' }, 'Serve Order'),
+              e('p', { className: 'text-sm text-gray-600 mb-3 text-center' }, 'Tap a position, then tap a player to assign'),
               e('div', { className: 'space-y-2 mb-4' },
-                serverOrder.map((s, i) => {
-                  const isCurrentServer = i === currentServerIndex;
-                  const isEditing = editingPosition === i;
-                  return e('div', { 
-                    key: i, 
-                    className: `flex items-center p-3 rounded-lg border-2 ${isCurrentServer ? 'border-green-500 bg-green-50' : isEditing ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} ${s.team === 'teamA' ? 'bg-blue-50' : 'bg-red-50'}`
-                  },
-                    e('button', { 
-                      onClick: () => setEditingPosition(editingPosition === i ? null : i),
-                      className: `w-8 h-8 rounded-full ${isEditing ? 'bg-blue-500 text-white' : 'bg-gray-200'} flex items-center justify-center font-bold text-sm mr-3`
-                    }, i + 1),
-                    e('span', { 
-                      onClick: () => handleSetCurrentServer(i),
-                      className: `font-medium flex-1 cursor-pointer ${s.team === 'teamA' ? 'text-blue-600' : 'text-red-600'}` 
-                    }, getPlayerName(s.team, s.side)),
-                    isCurrentServer && e('span', { className: 'text-lg' }, '🎾')
-                  );
-                })),
-              editingPosition !== null && e('div', { className: 'mb-4 p-3 bg-gray-100 rounded-lg' },
-                e('p', { className: 'text-xs text-gray-600 mb-2 font-medium' }, 
-                  editingPosition === 0 || editingPosition === 2 
-                    ? 'Select 1st server (partner will be 3rd):' 
-                    : 'Select 2nd server (partner will be 4th):'),
+                serverOrder.map((s, i) => e('div', { 
+                  key: i, 
+                  onClick: () => handleSlotClick(i),
+                  className: `flex items-center p-3 rounded-lg border-2 cursor-pointer ${selectedSlot === i ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} ${s.team === 'teamA' ? 'bg-blue-50' : 'bg-red-50'}`
+                },
+                  e('span', { className: 'w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center font-bold text-sm mr-3' }, i + 1),
+                  e('span', { className: `font-medium ${s.team === 'teamA' ? 'text-blue-600' : 'text-red-600'}` }, getPlayerName(s.team, s.side)),
+                  i === match.serverIndex && e('span', { className: 'ml-auto text-lg' }, '🎾')
+                ))),
+              selectedSlot !== null && e('div', { className: 'mb-4' },
+                e('p', { className: 'text-xs text-gray-500 mb-2' }, 'Select player for position ', selectedSlot + 1, ':'),
                 e('div', { className: 'grid grid-cols-2 gap-2' },
-                  getAvailablePlayers().map((p, i) => e('button', {
+                  allPlayers.map((p, i) => e('button', {
                     key: i,
-                    onClick: () => handleSelectPlayer(p),
-                    className: `p-2 rounded-lg text-sm font-medium ${p.team === 'teamA' ? 'bg-blue-200 text-blue-700' : 'bg-red-200 text-red-700'}`
+                    onClick: () => handlePlayerClick(p),
+                    className: `p-2 rounded-lg text-sm font-medium ${p.team === 'teamA' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`
                   }, getPlayerName(p.team, p.side))))),
-              e('button', { onClick: () => setShowServeOrderModal(false), className: 'w-full py-3 bg-gray-200 rounded-lg font-semibold' }, 'Close')));
-        };
-
-        // First server selection component (shown below court if not confirmed)
-        const FirstServerSelection = () => {
-          return e('div', { className: 'mt-3 p-3 bg-yellow-50 border-2 border-yellow-300 rounded-xl' },
-            e('p', { className: 'text-sm font-medium text-center mb-2' }, 'Who serves first?'),
-            e('div', { className: 'grid grid-cols-2 gap-2' },
-              e('button', {
-                onClick: () => setFirstServer('teamA', 'right'),
-                className: 'py-3 rounded-lg font-medium text-sm bg-blue-100 text-blue-600 border-2 border-blue-300'
-              }, getPlayerName('teamA', 'right')),
-              e('button', {
-                onClick: () => setFirstServer('teamB', 'right'),
-                className: 'py-3 rounded-lg font-medium text-sm bg-red-100 text-red-600 border-2 border-red-300'
-              }, getPlayerName('teamB', 'right'))));
+              e('div', { className: 'flex gap-2' },
+                e('button', { onClick: () => setShowServeOrderModal(false), className: 'flex-1 py-3 bg-gray-200 rounded-lg font-semibold' }, 'Close'),
+                e('button', { 
+                  onClick: () => { setMatch(m => ({ ...m, serverIndex: 0, tiebreakServerIndex: 0 })); setShowServeOrderModal(false); }, 
+                  className: 'flex-1 py-3 bg-blue-500 text-white rounded-lg font-semibold' 
+                }, 'Reset to 1st'))));
         };
 
         return e('div', { className: 'min-h-screen bg-gray-50' },
@@ -655,7 +555,6 @@
             e('div', { className: 'flex justify-between items-center mb-2' }, e('button', { onClick: undo, disabled: history.length === 0, className: 'px-3 py-2 bg-gray-300 rounded-lg disabled:opacity-50 font-medium text-sm' }, 'Undo'), e('button', { onClick: openEditModal, className: 'px-3 py-2 bg-gray-300 rounded-lg font-medium text-sm' }, 'Edit'), e('button', { onClick: () => setShowServeOrderModal(true), className: 'px-3 py-2 bg-gray-300 rounded-lg font-medium text-sm' }, 'Serve Order'), e('button', { onClick: () => setScreen('stats'), className: 'px-3 py-2 bg-purple-500 text-white rounded-lg font-medium text-sm' }, 'Stats')),
             e('div', { className: 'mb-2 bg-white rounded-lg border overflow-hidden' }, e('table', { className: 'w-full text-sm' }, e('thead', null, e('tr', { className: 'bg-gray-100' }, e('th', { className: 'py-1 px-2 text-left font-medium' }, 'Team'), e('th', { className: 'py-1 px-2 text-center font-medium w-14' }, 'Points'), e('th', { className: 'py-1 px-2 text-center font-medium w-12' }, 'Game'), showSetColumns && match.sets.map((_, i) => e('th', { key: i, className: 'py-1 px-2 text-center font-medium w-12 text-gray-400' }, `Set ${i + 1}`)))), e('tbody', null, e('tr', { className: 'border-t' }, e('td', { className: 'py-1 px-2 text-blue-600 font-medium text-xs truncate max-w-24' }, server.team === 'teamA' ? '● ' : '', getTeamName('teamA')), e('td', { className: 'py-1 px-2 text-center font-bold text-lg text-blue-600' }, pointsDisplay.a), e('td', { className: 'py-1 px-2 text-center font-bold text-lg' }, match.games.teamA), showSetColumns && match.sets.map((s, i) => e('td', { key: i, className: 'py-1 px-2 text-center font-semibold text-gray-400' }, s.teamA))), e('tr', { className: 'border-t' }, e('td', { className: 'py-1 px-2 text-red-600 font-medium text-xs truncate max-w-24' }, server.team === 'teamB' ? '● ' : '', getTeamName('teamB')), e('td', { className: 'py-1 px-2 text-center font-bold text-lg text-red-600' }, pointsDisplay.b), e('td', { className: 'py-1 px-2 text-center font-bold text-lg' }, match.games.teamB), showSetColumns && match.sets.map((s, i) => e('td', { key: i, className: 'py-1 px-2 text-center font-semibold text-gray-400' }, s.teamB))))), (match.isTiebreak || match.isSuperTiebreak) && e('div', { className: 'bg-orange-100 text-center py-1 text-sm font-medium' }, match.isSuperTiebreak ? 'SUPER TIEBREAK' : 'TIEBREAK')),
             e('div', { className: 'bg-green-100 rounded-xl p-2' }, e('div', { className: 'bg-green-50 rounded-lg border-4 border-green-200 p-2' }, e('div', { className: 'grid grid-cols-2 gap-2 mb-2' }, renderPlayerBox('teamA', 'right'), renderPlayerBox('teamA', 'left')), e('div', { className: 'border-t-4 border-green-200 border-dashed my-2' }), e('div', { className: 'grid grid-cols-2 gap-2' }, renderPlayerBox('teamB', 'left'), renderPlayerBox('teamB', 'right')))),
-            !serveOrderConfirmed && e(FirstServerSelection),
             e('div', { className: 'flex items-center justify-between mt-3 px-2' }, e('div', { className: 'flex items-center gap-2' }, e('span', { className: 'text-sm text-gray-600' }, 'Track shot types'), e('div', { className: `toggle-switch ${trackShotTypes ? 'active' : ''}`, onClick: () => setTrackShotTypes(!trackShotTypes) })), e('button', { onClick: () => setShowEndMatchOptions(true), className: 'px-4 py-2 bg-orange-500 text-white rounded-lg font-medium text-sm' }, 'End Match')),
             match.isComplete && e('div', { className: 'mt-4 p-4 bg-yellow-100 rounded-xl text-center' }, e('h2', { className: 'text-xl font-bold' }, 'Match Complete!'), e('p', { className: 'text-lg' }, match.isDraw ? 'Match ended as a draw' : `${getTeamName(match.winner)} wins!`), e('div', { className: 'flex gap-2 justify-center mt-2' }, e('button', { onClick: undo, disabled: history.length === 0, className: 'px-4 py-3 bg-gray-300 rounded-lg font-semibold disabled:opacity-50' }, 'Undo'), e('button', { onClick: () => setScreen('stats'), className: 'px-6 py-3 bg-purple-500 text-white rounded-lg font-semibold' }, 'View Stats')))),
           showServeOrderModal && e(ServeOrderModal),
@@ -669,7 +568,7 @@
             e('div', { className: 'mb-4' }, e('h4', { className: 'font-semibold mb-2' }, 'Games'), e('div', { className: 'grid grid-cols-2 gap-2' }, e('div', null, e('label', { className: 'text-xs text-gray-500' }, 'Team A'), e('select', { value: editGames.teamA, onChange: ev => setEditGames(g => ({ ...g, teamA: parseInt(ev.target.value) })), className: 'p-2 border rounded w-full' }, getEditGamesOptions().map(n => e('option', { key: n, value: n }, n)))), e('div', null, e('label', { className: 'text-xs text-gray-500' }, 'Team B'), e('select', { value: editGames.teamB, onChange: ev => setEditGames(g => ({ ...g, teamB: parseInt(ev.target.value) })), className: 'p-2 border rounded w-full' }, getEditGamesOptions().map(n => e('option', { key: n, value: n }, n)))))), 
             e('div', { className: 'mb-4' }, e('h4', { className: 'font-semibold mb-2' }, 'Points'), e('div', { className: 'grid grid-cols-2 gap-2' }, e('div', null, e('label', { className: 'text-xs text-gray-500' }, 'Team A'), e('select', { value: editPoints.teamA, onChange: ev => handlePointsChange('teamA', ev.target.value), className: 'p-2 border rounded w-full' }, ['0', '15', '30', '40', 'AD', 'GP'].map(p => e('option', { key: p, value: p }, p)))), e('div', null, e('label', { className: 'text-xs text-gray-500' }, 'Team B'), e('select', { value: editPoints.teamB, onChange: ev => handlePointsChange('teamB', ev.target.value), className: 'p-2 border rounded w-full' }, ['0', '15', '30', '40', 'AD', 'GP'].map(p => e('option', { key: p, value: p }, p)))))), 
             e('div', { className: 'flex gap-2' }, e('button', { onClick: () => setShowEditModal(false), className: 'flex-1 py-3 bg-gray-200 rounded-lg font-semibold' }, 'Cancel'), e('button', { onClick: saveEditModal, className: 'flex-1 py-3 bg-blue-500 text-white rounded-lg font-semibold' }, 'Save')))),
-          pendingPoint && e('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' }, e('div', { className: 'bg-white rounded-xl p-4 w-full max-w-sm max-h-[90vh] overflow-y-auto' }, e('h3', { className: 'font-bold mb-3 text-center text-lg' }, pendingPoint.outcome === 'winner' ? 'Winner' : pendingPoint.outcome === 'forced' ? 'Forced Error' : 'Unforced Error', e('br'), e('span', { className: 'text-base font-normal text-gray-600' }, pendingPoint.playerName)), (server.team === pendingPoint.team && server.side === pendingPoint.playerSide && pendingPoint.outcome === 'winner') && e('div', { className: 'mb-3' }, e('button', { onClick: () => confirmPoint('Ace'), className: 'w-full p-4 text-lg rounded-lg border-2 font-bold bg-green-100 border-green-400' }, 'Ace')), (server.team === pendingPoint.team && server.side === pendingPoint.playerSide && pendingPoint.outcome === 'error') && e('div', { className: 'mb-3' }, e('button', { onClick: () => confirmPoint('Double Fault'), className: 'w-full p-4 text-lg rounded-lg border-2 font-bold bg-red-100 border-red-400' }, 'Double Fault')), e('p', { className: 'text-sm text-gray-600 mb-2 font-medium' }, 'Select shot type (optional):'), SHOT_GROUPS.map(group => e('div', { key: group.label, className: 'mb-3' }, e('p', { className: 'text-xs text-gray-500 mb-1 font-medium' }, group.label), e('div', { className: 'grid grid-cols-3 gap-1' }, group.shots.map(shot => e('button', { key: shot, onClick: () => confirmPoint(shot), className: 'p-2 text-sm rounded-lg border-2 font-medium bg-gray-50 border-gray-200' }, shot))))), e('div', { className: 'flex gap-3 mt-4' }, e('button', { onClick: () => setPendingPoint(null), className: 'flex-1 py-3 bg-gray-200 rounded-lg font-semibold' }, 'Cancel'), e('button', { onClick: () => confirmPoint(null), className: 'flex-1 py-3 bg-blue-500 text-white rounded-lg font-semibold' }, 'Skip Details')))));
+          pendingPoint && e('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' }, e('div', { className: 'bg-white rounded-xl p-4 w-full max-w-sm max-h-[90vh] overflow-y-auto' }, e('h3', { className: 'font-bold mb-3 text-center text-lg' }, pendingPoint.outcome === 'winner' ? 'Winner' : pendingPoint.outcome === 'forced' ? 'Forced Error' : 'Unforced Error', e('br'), e('span', { className: 'text-base font-normal text-gray-600' }, pendingPoint.playerName)), (server.team === pendingPoint.team && server.side === pendingPoint.playerSide && pendingPoint.outcome === 'winner') && e('div', { className: 'mb-3' }, e('button', { onClick: () => confirmPoint('Ace'), className: 'w-full p-4 text-lg rounded-lg border-2 font-bold bg-green-100 border-green-400' }, 'Ace')), (server.team === pendingPoint.team && server.side === pendingPoint.playerSide && pendingPoint.outcome === 'error') && e('div', { className: 'mb-3' }, e('button', { onClick: () => confirmPoint('Double Fault'), className: 'w-full p-4 text-lg rounded-lg border-2 font-bold bg-red-100 border-red-400' }, 'Double Fault')), e('p', { className: 'text-sm text-gray-600 mb-2 font-medium' }, 'Select shot type (optional):'), SHOT_GROUPS.map(group => e('div', { key: group.label, className: 'mb-3' }, e('p', { className: 'text-xs text-gray-500 mb-1 font-medium' }, group.label), e('div', { className: 'grid grid-cols-3 gap-1' }, group.shots.filter(shot => pendingPoint.outcome !== 'winner' || !ERROR_ONLY_SHOTS.includes(shot)).map(shot => e('button', { key: shot, onClick: () => confirmPoint(shot), className: 'p-2 text-sm rounded-lg border-2 font-medium bg-gray-50 border-gray-200' }, shot))))), e('div', { className: 'flex gap-3 mt-4' }, e('button', { onClick: () => setPendingPoint(null), className: 'flex-1 py-3 bg-gray-200 rounded-lg font-semibold' }, 'Cancel'), e('button', { onClick: () => confirmPoint(null), className: 'flex-1 py-3 bg-blue-500 text-white rounded-lg font-semibold' }, 'Skip Details')))));
       }
 
       if (screen === 'stats') {
@@ -713,32 +612,32 @@
             // Team A players
             e('div', { className: 'space-y-2' },
               psa.filter(p => p.team === 'teamA').map((p, i) => e('div', { key: i, className: 'p-2 rounded-lg bg-blue-50 border-2 border-blue-200' },
-                e('div', { className: 'font-bold text-sm mb-3' }, p.name),
+                e('div', { className: 'font-bold text-sm mb-1' }, p.name),
                 e('div', { className: 'flex gap-2 text-center' },
-                  e('div', { className: 'flex-1 bg-white rounded py-1 px-1 flex flex-col items-center justify-center' }, e('div', { className: 'font-bold text-green-600 text-sm' }, p.winners), e('div', { className: 'text-[7px] text-gray-500' }, 'Winners')),
-                  e('div', { className: 'flex-1 bg-white rounded py-1 px-1 flex flex-col items-center justify-center' }, e('div', { className: 'font-bold text-yellow-600 text-sm' }, p.forcedErrors), e('div', { className: 'text-[7px] text-gray-500' }, 'Forced')),
-                  e('div', { className: 'flex-1 bg-white rounded py-1 px-1 flex flex-col items-center justify-center' }, e('div', { className: 'font-bold text-red-600 text-sm' }, p.errors), e('div', { className: 'text-[7px] text-gray-500' }, 'Unforced'))),
+                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-green-600' }, p.winners), e('div', { className: 'text-[8px] text-gray-500' }, 'Winners')),
+                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-yellow-600' }, p.forcedErrors), e('div', { className: 'text-[8px] text-gray-500' }, 'Forced')),
+                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-red-600' }, p.errors), e('div', { className: 'text-[8px] text-gray-500' }, 'Unforced'))),
                 (getTop3Shots(p.winnerShots).length > 0 || getTop3Shots(p.errorShots).length > 0) && e('div', { className: 'mt-1 pt-1 border-t border-blue-200 text-[8px]' },
-                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, e('span', { className: 'font-semibold' }, 'Top 3 Winners: '), getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
-                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, e('span', { className: 'font-semibold' }, 'Top 3 UE: '), getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')))))),
+                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, '✓ ', getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
+                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, '✗ ', getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')))))),
             // Team B players
             e('div', { className: 'space-y-2' },
               psa.filter(p => p.team === 'teamB').map((p, i) => e('div', { key: i, className: 'p-2 rounded-lg bg-red-50 border-2 border-red-200' },
-                e('div', { className: 'font-bold text-sm mb-3' }, p.name),
+                e('div', { className: 'font-bold text-sm mb-1' }, p.name),
                 e('div', { className: 'flex gap-2 text-center' },
-                  e('div', { className: 'flex-1 bg-white rounded py-1 px-1 flex flex-col items-center justify-center' }, e('div', { className: 'font-bold text-green-600 text-sm' }, p.winners), e('div', { className: 'text-[7px] text-gray-500' }, 'Winners')),
-                  e('div', { className: 'flex-1 bg-white rounded py-1 px-1 flex flex-col items-center justify-center' }, e('div', { className: 'font-bold text-yellow-600 text-sm' }, p.forcedErrors), e('div', { className: 'text-[7px] text-gray-500' }, 'Forced')),
-                  e('div', { className: 'flex-1 bg-white rounded py-1 px-1 flex flex-col items-center justify-center' }, e('div', { className: 'font-bold text-red-600 text-sm' }, p.errors), e('div', { className: 'text-[7px] text-gray-500' }, 'Unforced'))),
+                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-green-600' }, p.winners), e('div', { className: 'text-[8px] text-gray-500' }, 'Winners')),
+                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-yellow-600' }, p.forcedErrors), e('div', { className: 'text-[8px] text-gray-500' }, 'Forced')),
+                  e('div', { className: 'flex-1 bg-white rounded p-1' }, e('div', { className: 'font-bold text-red-600' }, p.errors), e('div', { className: 'text-[8px] text-gray-500' }, 'Unforced'))),
                 (getTop3Shots(p.winnerShots).length > 0 || getTop3Shots(p.errorShots).length > 0) && e('div', { className: 'mt-1 pt-1 border-t border-red-200 text-[8px]' },
-                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, e('span', { className: 'font-semibold' }, 'Top 3 Winners: '), getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
-                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, e('span', { className: 'font-semibold' }, 'Top 3 UE: '), getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', '))))))),
+                  getTop3Shots(p.winnerShots).length > 0 && e('div', { className: 'text-green-700' }, '✓ ', getTop3Shots(p.winnerShots).map(([shot, count]) => `${shot}: ${count}`).join(', ')),
+                  getTop3Shots(p.errorShots).length > 0 && e('div', { className: 'text-red-700' }, '✗ ', getTop3Shots(p.errorShots).map(([shot, count]) => `${shot}: ${count}`).join(', '))))))),
           // Compact team comparison
           e('div', { className: 'p-2 bg-gray-100 rounded-lg' },
             e('div', { className: 'grid grid-cols-7 gap-1 text-center text-xs' },
               e('div'),
               e('div', { className: 'text-gray-500' }, 'Pts'),
               e('div', { className: 'text-gray-500' }, 'Win'),
-              e('div', { className: 'text-gray-500' }, 'FE'),
+              e('div', { className: 'text-gray-500' }, 'Frc'),
               e('div', { className: 'text-gray-500' }, 'UE'),
               e('div', { className: 'text-gray-500' }, 'BP'),
               e('div', { className: 'text-gray-500' }, 'Svc%'),
